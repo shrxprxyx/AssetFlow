@@ -1,10 +1,12 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
 import { useSession } from "next-auth/react";
-import { Sidebar } from "@/components/sidebar";
+import { Toaster } from "sonner";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
+import { Topbar } from "@/components/topbar";
 import { LoadingState } from "@/components/ui";
 
 interface LayoutProps {
@@ -31,14 +33,17 @@ export default function ProtectedLayout({ children }: LayoutProps) {
   }
 
   const userRole = session?.user?.role ?? "EMPLOYEE";
-  const userName = session?.user?.name ?? "User";
 
   return (
-    <div className="flex bg-background min-h-screen">
-      <Sidebar userRole={userRole} userName={userName} />
-      <main className="flex-1 md:ml-0 p-4 md:p-8 mt-16 md:mt-0">
-        {children}
-      </main>
-    </div>
+    <SidebarProvider>
+      <AppSidebar userRole={userRole} />
+      <SidebarInset>
+        <Topbar />
+        <main className="p-4 md:p-8 bg-background min-h-screen">
+          {children}
+        </main>
+      </SidebarInset>
+      <Toaster richColors position="top-right" />
+    </SidebarProvider>
   );
 }
