@@ -2,8 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
+import {
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  SortingState,
+  useReactTable,
+} from "@tanstack/react-table";
+import { ArrowUpDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
 import { LoadingState, EmptyState } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +73,23 @@ function Pill({ className, children }: { className?: string; children: React.Rea
   );
 }
 
+function SortableHeader({
+  label,
+  column,
+}: {
+  label: string;
+  column: { toggleSorting: (desc?: boolean) => void; getIsSorted: () => false | "asc" | "desc" };
+}) {
+  return (
+    <button
+      className="flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground transition-colors"
+      onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+    >
+      {label} <ArrowUpDown className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
 const inputClass =
   "h-10 px-3 rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-3 focus:ring-ring/50";
 
@@ -96,6 +125,9 @@ export default function AssetsPage() {
     isBookable: false,
     notes: "",
   });
+
+  // TanStack Table sort state
+  const [sorting, setSorting] = useState<SortingState>([]);
 
   async function refetch() {
     setLoading(true);
@@ -135,6 +167,84 @@ export default function AssetsPage() {
         (a.location ?? "").toLowerCase().includes(q)
     );
   }, [assets, search]);
+
+  const columns = useMemo<ColumnDef<Asset>[]>(
+    () => [
+      {
+        accessorKey: "assetTag",
+        header: ({ column }) => <SortableHeader label="Tag" column={column} />,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.assetTag}</span>
+        ),
+      },
+      {
+        accessorKey: "name",
+        header: ({ column }) => <SortableHeader label="Name" column={column} />,
+        cell: ({ row }) => (
+          <span className="font-medium text-foreground">
+            {row.original.name}
+            {row.original.isBookable && (
+              <Pill className="ml-2 bg-primary/10 text-primary">Bookable</Pill>
+            )}
+          </span>
+        ),
+      },
+      {
+        id: "category",
+        accessorFn: (a) => a.category?.name ?? "",
+        header: "Category",
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">{row.original.category?.name ?? "—"}</span>
+        ),
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => <SortableHeader label="Status" column={column} />,
+        cell: ({ row }) => (
+          <Pill className={STATUS_STYLES[row.original.status]}>
+            {row.original.status.replace("_", " ")}
+          </Pill>
+        ),
+      },
+      {
+        id: "holder",
+        accessorFn: (a) =>
+          a.currentHolder ? `${a.currentHolder.firstName} ${a.currentHolder.lastName}` : "",
+        header: "Holder",
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {row.original.currentHolder
+              ? `${row.original.currentHolder.firstName} ${row.original.currentHolder.lastName}`
+              : "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "location",
+        header: "Location",
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">{row.original.location ?? "—"}</span>
+        ),
+      },
+      {
+        accessorKey: "condition",
+        header: "Condition",
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">{row.original.condition}</span>
+        ),
+      },
+    ],
+    []
+  );
+
+  const table = useReactTable({
+    data: visibleAssets,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
 
   async function registerAsset() {
     setError("");
@@ -337,41 +447,32 @@ export default function AssetsPage() {
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 border-b border-border">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Tag</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Category</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Holder</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Location</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Condition</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {visibleAssets.map((a) => (
-                  <tr key={a.id}>
-                    <td className="px-4 py-3 text-foreground font-mono text-xs">{a.assetTag}</td>
-                    <td className="px-4 py-3 text-foreground font-medium">
-                      {a.name}
-                      {a.isBookable && (
-                        <Pill className="ml-2 bg-primary/10 text-primary">Bookable</Pill>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{a.category?.name ?? "—"}</td>
-                    <td className="px-4 py-3">
-                      <Pill className={STATUS_STYLES[a.status]}>{a.status.replace("_", " ")}</Pill>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {a.currentHolder ? `${a.currentHolder.firstName} ${a.currentHolder.lastName}` : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{a.location ?? "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{a.condition}</td>
-                  </tr>
+            <Table>
+              <TableHeader>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <TableHead key={header.id}>
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(header.column.columnDef.header, header.getContext())}
+                      </TableHead>
+                    ))}
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableHeader>
+              <TableBody>
+                {table.getRowModel().rows.map((row) => (
+                  <TableRow key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}
