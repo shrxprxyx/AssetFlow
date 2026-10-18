@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState } from "@/components/ui";
@@ -273,19 +273,19 @@ export default function AllocationsPage() {
                     setConflict(null);
                     setNotice("");
                   }}
-                  className={inputClass}
+                  className={cn(inputClass, "cursor-pointer")}
                 >
                   <option value="">Select asset</option>
                   {assets.map((a) => (
-                    <option key={a.id} value={a.id}>
+                    <option key={a.id} value={a.id} className="cursor-pointer">
                       {a.assetTag} — {a.name} ({a.status})
                     </option>
                   ))}
                 </select>
-                <select value={holderId} onChange={(e) => setHolderId(e.target.value)} className={inputClass}>
+                <select value={holderId} onChange={(e) => setHolderId(e.target.value)} className={cn(inputClass, "cursor-pointer")}>
                   <option value="">Select employee</option>
                   {employees.map((e) => (
-                    <option key={e.id} value={e.id}>
+                    <option key={e.id} value={e.id} className="cursor-pointer"  >
                       {e.firstName} {e.lastName}
                       {e.departmentName ? ` (${e.departmentName})` : ""}
                     </option>
@@ -310,7 +310,7 @@ export default function AllocationsPage() {
                 </p>
               )}
 
-              <Button onClick={allocate} disabled={allocating}>
+              <Button onClick={allocate} disabled={allocating} className="cursor-pointer">
                 {allocating ? "Allocating..." : "Allocate Asset"}
               </Button>
 
@@ -379,7 +379,7 @@ export default function AllocationsPage() {
                         const overdue =
                           a.expectedReturnDate && new Date(a.expectedReturnDate) < new Date();
                         return (
-                          <>
+                          <Fragment key={a.id}>
                             <tr key={a.id}>
                               <td className="px-4 py-3 text-foreground font-medium">
                                 {a.asset ? `${a.asset.assetTag} — ${a.asset.name}` : `#${a.assetId}`}
@@ -410,6 +410,7 @@ export default function AllocationsPage() {
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  className="cursor-pointer"
                                   onClick={() => setReturningId(returningId === a.id ? null : a.id)}
                                 >
                                   {returningId === a.id ? "Cancel" : "Mark Returned"}
@@ -425,7 +426,7 @@ export default function AllocationsPage() {
                                       onChange={(e) =>
                                         setReturnCondition({ ...returnCondition, [a.id]: e.target.value })
                                       }
-                                      className={inputClass}
+                                      className={cn(inputClass, "cursor-pointer")}
                                     >
                                       <option value="GOOD">Good</option>
                                       <option value="FAIR">Fair</option>
@@ -443,6 +444,7 @@ export default function AllocationsPage() {
                                       size="sm"
                                       disabled={submittingReturn === a.id}
                                       onClick={() => markReturned(a.id)}
+                                      className="cursor-pointer"
                                     >
                                       {submittingReturn === a.id ? "Submitting..." : "Confirm Return"}
                                     </Button>
@@ -450,7 +452,7 @@ export default function AllocationsPage() {
                                 </td>
                               </tr>
                             )}
-                          </>
+                          </Fragment>
                         );
                       })}
                     </tbody>

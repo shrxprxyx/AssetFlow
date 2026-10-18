@@ -13,7 +13,19 @@ import {
   SidebarHeader, SidebarFooter, SidebarRail,
 } from "@/components/ui/sidebar";
 
-const NAV_GROUPS = [
+type NavItem = {
+  label: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  // If set, only these roles see the item. Keep in sync with the API guards.
+  roles?: string[];
+};
+
+type NavGroup = { label: string; items: NavItem[] };
+
+const MANAGERS = ["ADMIN", "ASSET_MANAGER", "DEPARTMENT_HEAD"];
+
+const NAV_GROUPS: NavGroup[] = [
   {
     label: "Overview",
     items: [{ label: "Dashboard", href: "/dashboard", icon: BarChart3 }],
@@ -30,21 +42,27 @@ const NAV_GROUPS = [
     label: "Operations",
     items: [
       { label: "Resource Booking", href: "/bookings", icon: Calendar },
-      { label: "Audit Cycles", href: "/audits", icon: CheckSquare },
-      { label: "Reports", href: "/reports", icon: FileText },
+      { label: "Audit Cycles", href: "/audits", icon: CheckSquare, roles: MANAGERS },
+      { label: "Reports", href: "/reports", icon: FileText, roles: MANAGERS },
       { label: "Activity & Notifications", href: "/activity", icon: Clock },
     ],
   },
   {
     label: "Admin",
-    adminOnly: true,
-    items: [{ label: "Organization Setup", href: "/org-setup", icon: Settings }],
+    items: [
+      { label: "Organization Setup", href: "/org-setup", icon: Settings, roles: ["ADMIN"] },
+    ],
   },
 ];
 
 export function AppSidebar({ userRole = "EMPLOYEE" }: { userRole?: string }) {
   const pathname = usePathname();
-  const isAdmin = userRole === "ADMIN";
+
+  // Drop items the role can't use, then drop groups that end up empty.
+  const groups = NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((item) => !item.roles || item.roles.includes(userRole)),
+  })).filter((g) => g.items.length > 0);
 
   return (
     <Sidebar collapsible="icon">
@@ -54,7 +72,7 @@ export function AppSidebar({ userRole = "EMPLOYEE" }: { userRole?: string }) {
         </span>
       </SidebarHeader>
       <SidebarContent>
-        {NAV_GROUPS.filter((g) => !g.adminOnly || isAdmin).map((group) => (
+        {groups.map((group) => (
           <SidebarGroup key={group.label}>
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>

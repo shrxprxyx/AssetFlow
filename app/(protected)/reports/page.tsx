@@ -153,6 +153,7 @@ export default function ReportsPage() {
           variant="outline"
           disabled={!data}
           onClick={() => data && exportReportCsv(data)}
+          className="cursor-pointer"
         >
           <Download data-icon="inline-start" />
           Export Report

@@ -130,7 +130,7 @@ export default function ActivityPage() {
             key={tab.value}
             onClick={() => setFilter(tab.value)}
             className={cn(
-              "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+              "px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer",
               filter === tab.value
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground"

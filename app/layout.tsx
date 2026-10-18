@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/components/SessionProvider";
 
@@ -11,6 +11,13 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// Display serif used only for big headings on the auth screens.
+const serif = Instrument_Serif({
+  variable: "--font-serif",
+  subsets: ["latin"],
+  weight: "400",
 });
 
 export const metadata: Metadata = {
@@ -26,9 +33,11 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className="dark"
+      className={`dark ${geistSans.variable} ${geistMono.variable} ${serif.variable}`}
     >
-      <body className="min-h-full bg-slate-950 text-slate-100">
+      <body
+        className={`${geistSans.className} min-h-screen bg-slate-950 text-slate-100 antialiased`}
+      >
         <SessionProvider>{children}</SessionProvider>
       </body>
     </html>

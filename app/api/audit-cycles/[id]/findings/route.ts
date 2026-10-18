@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { auditFindingSchema } from "@/lib/schemas";
 import { logActivity } from "@/lib/logActivity";
+import { requireAuth } from "@/lib/guards";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json(
-      { error: "unauthorized", message: "Sign in to record a finding" },
-      { status: 401 }
-    );
-  }
+
+  // Only people who can run an audit may record findings. (With a single
+  // implicit auditor per cycle, "auditor" = Admin or Asset Manager.)
+  const guard = await requireAuth("ADMIN", "ASSET_MANAGER");
+  if (!guard.ok) return guard.response;
+  const auditorId = guard.user.userId;
 
   const cycleId = Number(id);
   if (!Number.isInteger(cycleId) || cycleId <= 0) {
@@ -49,12 +48,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     );
   }
 
-  const auditorId = Number(session.user.id);
-
   // Upsert-by-hand: (cycleId, assetId) isn't a DB-enforced unique pair in this
-  // schema (unlike allocations/bookings, findings aren't a race-condition risk —
-  // one auditor clicking through a checklist sequentially), so a find-then-write
-  // here is enough for the demo.
+  // schema, and findings aren't a race-condition risk — one auditor clicking
+  // through a checklist sequentially — so a find-then-write is enough here.
   const existing = await prisma.auditFinding.findFirst({ where: { cycleId, assetId } });
 
   const finding = existing

@@ -2,16 +2,18 @@ import { prisma } from '@/lib/prisma';
 import { ReturnAssetSchema } from '@/lib/schemas';
 import { returnAsset } from '@/lib/allocations';
 import { logActivity } from '@/lib/logActivity';
+import { requireAuth } from '@/lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/auth';
 
-// This endpoint was previously missing entirely - lib/allocations.ts had a
-// working returnAsset() function with nothing calling it. Closes the "mark
-// returned + condition check-in" gap from the problem statement.
+// Mark an allocation returned + capture the condition check-in.
+// Allowed for: the holder, Admin/Asset Manager, or the Department Head of the
+// department that holds the asset.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
+  const { user } = guard;
 
   const allocationId = Number(id);
   if (!Number.isInteger(allocationId) || allocationId <= 0) {
@@ -19,22 +21,40 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   try {
-    const actor = await prisma.user.findUnique({
-      where: { email: session.user.email },
+    const existing = await prisma.allocation.findUnique({
+      where: { id: allocationId },
+      select: { holderId: true, holderDeptId: true, holder: { select: { departmentId: true } } },
     });
-    if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!existing) {
+      return NextResponse.json({ error: 'Allocation not found' }, { status: 404 });
+    }
+
+    const isManager = user.role === 'ADMIN' || user.role === 'ASSET_MANAGER';
+    const isHolder = existing.holderId === user.userId;
+    const isDeptHeadOfHolder =
+      user.role === 'DEPARTMENT_HEAD' &&
+      user.departmentId !== null &&
+      (existing.holderDeptId === user.departmentId ||
+        existing.holder?.departmentId === user.departmentId);
+
+    if (!isManager && !isHolder && !isDeptHeadOfHolder) {
+      return NextResponse.json(
+        { error: 'forbidden', message: 'Only the holder or a manager can return this asset' },
+        { status: 403 }
+      );
+    }
 
     const body = await req.json();
     const data = ReturnAssetSchema.parse(body);
 
-    const result = await returnAsset(allocationId, data.condition, data.returnNotes, actor.id);
+    const result = await returnAsset(allocationId, data.condition, data.returnNotes, user.userId);
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
     await logActivity('asset_returned', {
-      actorId: actor.id,
+      actorId: user.userId,
       resourceType: 'Allocation',
       resourceId: allocationId,
       changes: { condition: data.condition },

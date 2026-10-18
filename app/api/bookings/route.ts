@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { bookingSchema } from "@/lib/schemas";
 import { createBooking, getBookingsForResource } from "@/lib/bookings";
 import { logActivity } from "@/lib/logActivity";
+import { requireAuth } from "@/lib/guards";
 
 export async function GET(req: NextRequest) {
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
+
   const { searchParams } = new URL(req.url);
   const resourceId = Number(searchParams.get("resourceId"));
   const dateParam = searchParams.get("date");
@@ -21,11 +24,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "unauthorized", message: "Sign in to book a resource" }, { status: 401 });
-  }
-  const bookerId = Number(session.user.id);
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
+  const bookerId = guard.user.userId;
 
   const body = await req.json();
   const parsed = bookingSchema.safeParse(body);
@@ -47,7 +48,9 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ booking }, { status: 201 });
   } catch (e: any) {
-    if (e?.status === 409) return NextResponse.json(e.body, { status: 409 });
+    // createBooking throws { status, body } for expected failures
+    // (409 overlap, 404 unknown resource, 400 not bookable)
+    if (e?.status && e?.body) return NextResponse.json(e.body, { status: e.status });
     console.error(e);
     return NextResponse.json({ error: "server_error", message: "Something went wrong creating the booking" }, { status: 500 });
   }

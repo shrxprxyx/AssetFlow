@@ -142,11 +142,11 @@ export default function MaintenancePage() {
             <select
               value={form.assetId}
               onChange={(e) => setForm({ ...form, assetId: e.target.value })}
-              className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground w-full sm:w-56"
+              className="h-10 cursor-pointer rounded-lg border border-border bg-background px-3 text-sm text-foreground w-full sm:w-56"
             >
-              <option value="">Select asset…</option>
+              <option value="">Select asset</option>
               {assets.map((a) => (
-                <option key={a.id} value={a.id}>
+                <option key={a.id} value={a.id} className="cursor-pointer">
                   {a.assetTag} — {a.name}
                 </option>
               ))}
@@ -161,17 +161,17 @@ export default function MaintenancePage() {
             <select
               value={form.priority}
               onChange={(e) => setForm({ ...form, priority: e.target.value })}
-              className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground w-full sm:w-36"
+              className="h-10 cursor-pointer rounded-lg border border-border bg-background px-3 text-sm text-foreground w-full sm:w-36"
             >
-              <option value="LOW">Low</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="HIGH">High</option>
-              <option value="CRITICAL">Critical</option>
+              <option value="LOW" className="cursor-pointer">Low</option>
+              <option value="MEDIUM" className="cursor-pointer">Medium</option>
+              <option value="HIGH" className="cursor-pointer">High</option>
+              <option value="CRITICAL" className="cursor-pointer">Critical</option>
             </select>
             <Button
               onClick={raiseRequest}
               disabled={submitting || !form.assetId || !form.description}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto cursor-pointer"
             >
               {submitting ? "Raising…" : "Raise Request"}
             </Button>

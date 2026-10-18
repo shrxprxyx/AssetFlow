@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/guards";
 
-// TEMP — Person 2's Asset Registry route will eventually cover this
-// (filtering assets by isBookable). Flag it at the 2:00 sync so it
-// doesn't get duplicated.
-
+// Bookable assets (rooms, vehicles, shared equipment) for the booking screen.
 export async function GET() {
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
 
-
-  
   const resources = await prisma.asset.findMany({
     where: { isBookable: true },
     select: { id: true, assetTag: true, name: true, location: true },

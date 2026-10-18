@@ -2,34 +2,31 @@ import { prisma } from '@/lib/prisma';
 import { CreateAllocationSchema } from '@/lib/schemas';
 import { allocateAsset } from '@/lib/allocations';
 import { logActivity } from '@/lib/logActivity';
+import { requireAuth } from '@/lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/auth';
-import { AllocationStatus } from '@prisma/client';
+import { AllocationStatus, Prisma } from '@prisma/client';
 
 const VALID_ALLOCATION_STATUSES = Object.values(AllocationStatus);
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Spec: Asset Managers allocate; Department Heads approve/allocate within
+  // their department. Employees can't hand assets out.
+  const guard = await requireAuth('ADMIN', 'ASSET_MANAGER', 'DEPARTMENT_HEAD');
+  if (!guard.ok) return guard.response;
+  const actorId = guard.user.userId;
 
   try {
     const body = await req.json();
     const data = CreateAllocationSchema.parse(body);
 
-    // Get actor ID
-    const actor = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    });
-    if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    // Call core allocation logic (handles transactions + conflict detection)
+    // Call core allocation logic (row lock + conflict detection + unique index)
     const result = await allocateAsset(
       data.assetId,
       data.holderId || null,
       data.holderDeptId || null,
       data.holderType,
       data.expectedReturnDate ? new Date(data.expectedReturnDate) : undefined,
-      actor.id
+      actorId
     );
 
     if (!result.success) {
@@ -48,7 +45,7 @@ export async function POST(req: NextRequest) {
     }
 
     await logActivity('asset_allocated', {
-      actorId: actor.id,
+      actorId,
       resourceType: 'Asset',
       resourceId: data.assetId,
       changes: { holderId: data.holderId, holderDeptId: data.holderDeptId },
@@ -66,8 +63,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
+  const { user } = guard;
 
   try {
     const { searchParams } = new URL(req.url);
@@ -83,8 +81,27 @@ export async function GET(req: NextRequest) {
     }
     const status = statusParam as AllocationStatus;
 
+    // Visibility by role (matches the spec):
+    //  - Employee: only what they hold
+    //  - Department Head: their department's allocations
+    //  - Admin / Asset Manager: everything
+    let scope: Prisma.AllocationWhereInput = {};
+    if (user.role === 'EMPLOYEE') {
+      scope = { holderId: user.userId };
+    } else if (user.role === 'DEPARTMENT_HEAD') {
+      scope = user.departmentId
+        ? {
+            OR: [
+              { holderDeptId: user.departmentId },
+              { holder: { departmentId: user.departmentId } },
+            ],
+          }
+        : { holderId: user.userId };
+    }
+
     const allocations = await prisma.allocation.findMany({
       where: {
+        ...scope,
         ...(assetId && { assetId: parseInt(assetId) }),
         ...(holderId && { holderId: parseInt(holderId) }),
         status,

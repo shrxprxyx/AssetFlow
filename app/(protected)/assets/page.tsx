@@ -321,24 +321,24 @@ export default function AssetsPage() {
               onChange={(e) => setSearch(e.target.value)}
               className={cn(inputClass, "flex-1")}
             />
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputClass}>
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={cn(inputClass, "cursor-pointer")}>
               <option value="">All Categories</option>
               {categories.map((c) => (
-                <option key={c.id} value={c.id}>
+                <option key={c.id} value={c.id} className="cursor-pointer">
                   {c.name}
                 </option>
               ))}
             </select>
-            <select value={status} onChange={(e) => setStatus(e.target.value)} className={inputClass}>
+            <select value={status} onChange={(e) => setStatus(e.target.value)} className={cn(inputClass, "cursor-pointer")}>
               <option value="">All Statuses</option>
               {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
+                <option key={s} value={s} className="cursor-pointer">
                   {s.replace("_", " ")}
                 </option>
               ))}
             </select>
             {canRegister && (
-              <Button className="sm:w-auto w-full" onClick={() => setShowForm((s) => !s)}>
+              <Button className="sm:w-auto w-full cursor-pointer" onClick={() => setShowForm((s) => !s)}>
                 {showForm ? "Cancel" : "Register Asset"}
               </Button>
             )}

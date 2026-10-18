@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/guards";
 
 export async function GET() {
+  // Aggregate counts only — safe for every signed-in role.
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
+
   const now = new Date();
 
   const [available, allocated, maintenanceToday, activeBookings, pendingTransfers, overdue, upcoming] =

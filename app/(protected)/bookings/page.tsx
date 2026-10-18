@@ -100,7 +100,7 @@ export default function BookingPage() {
         <select
           value={resourceId ?? ""}
           onChange={(e) => setResourceId(Number(e.target.value))}
-          className="h-9 w-full sm:w-auto rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+          className="h-9 w-full cursor-pointer sm:w-auto rounded-lg border border-border bg-background px-3 text-sm text-foreground"
         >
           {resources.map((r) => (
             <option key={r.id} value={r.id}>
@@ -188,7 +188,7 @@ export default function BookingPage() {
         <Button
           onClick={submitBooking}
           disabled={submitting || !resourceId}
-          className="w-full sm:w-auto"
+          className="w-full sm:w-auto cursor-pointer"
         >
           {submitting ? "Booking…" : "Book"}
         </Button>
