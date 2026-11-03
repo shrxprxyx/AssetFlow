@@ -1,14 +1,19 @@
 import { prisma } from '@/lib/prisma';
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/auth';
+import { requireAuth } from '@/lib/guards';
 import { Role, UserStatus } from '@prisma/client';
 
 const VALID_ROLES = Object.values(Role);
 const VALID_STATUSES = Object.values(UserStatus);
 
+// Employee directory.
+//   Admin / Asset Manager : everyone
+//   Department Head       : only their own department
+//   Employee              : not allowed (this list exposes emails and roles)
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const guard = await requireAuth('ADMIN', 'ASSET_MANAGER', 'DEPARTMENT_HEAD');
+  if (!guard.ok) return guard.response;
+  const { user } = guard;
 
   try {
     const { searchParams } = new URL(req.url);
@@ -36,9 +41,17 @@ export async function GET(req: NextRequest) {
     const role = roleParam as Role | null;
     const status = statusParam as UserStatus | null;
 
+    // A Department Head is pinned to their own department no matter what the
+    // query string says.
+    let departmentFilter: number | undefined = departmentId ? parseInt(departmentId) : undefined;
+    if (user.role === 'DEPARTMENT_HEAD') {
+      if (user.departmentId === null) return NextResponse.json([]);
+      departmentFilter = user.departmentId;
+    }
+
     const employees = await prisma.user.findMany({
       where: {
-        ...(departmentId && { departmentId: parseInt(departmentId) }),
+        ...(departmentFilter !== undefined && { departmentId: departmentFilter }),
         ...(role && { role }),
         ...(status && { status }),
       },

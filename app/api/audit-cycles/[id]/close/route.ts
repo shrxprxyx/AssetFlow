@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { requireAuth } from "@/lib/guards";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { logActivity } from "@/lib/logActivity";
@@ -9,17 +9,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await auth();
-
-  if (!session || session.user.role !== "ADMIN") {
-    return NextResponse.json(
-      {
-        error: "forbidden",
-        message: "Only Admins can close an audit cycle",
-      },
-      { status: 403 }
-    );
-  }
+  // Role comes from the database, not the login token.
+  const guard = await requireAuth("ADMIN");
+  if (!guard.ok) return guard.response;
 
   const cycleId = Number(id);
 
@@ -54,7 +46,7 @@ export async function POST(
     );
   }
 
-  const adminId = Number(session.user.id);
+  const adminId = guard.user.userId;
 
   const result = await prisma.$transaction(
     async (tx: Prisma.TransactionClient) => {

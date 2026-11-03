@@ -1,10 +1,12 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { TransferApprovals } from "@/components/transfer-approvals";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -63,9 +65,15 @@ export default function AllocationsPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [activeAllocations, setActiveAllocations] = useState<Allocation[]>([]);
+  const { data: session } = useSession();
+  // Only these roles can hand assets out. (The API enforces this too; this just
+  // stops showing a form that would be rejected.)
+  const canAllocate = ["ADMIN", "ASSET_MANAGER", "DEPARTMENT_HEAD"].includes(session?.user?.role ?? "");
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Allocate form
   const [assetId, setAssetId] = useState("");
@@ -95,16 +103,17 @@ export default function AllocationsPage() {
     try {
       const [assetsRes, employeesRes, allocationsRes] = await Promise.all([
         fetch("/api/assets"),
-        fetch("/api/employees"),
+        canAllocate ? fetch("/api/employees") : Promise.resolve(null),
         fetch("/api/allocations?status=ACTIVE"),
       ]);
       const assetsData = await assetsRes.json();
-      const employeesData = await employeesRes.json();
+      const employeesData = employeesRes ? await employeesRes.json() : [];
       const allocationsData = await allocationsRes.json();
       if (!assetsRes.ok) throw new Error(assetsData.message || assetsData.error || "Failed to load assets");
       setAssets(assetsData);
-      setEmployees(employeesData);
-      setActiveAllocations(allocationsData);
+      setEmployees(Array.isArray(employeesData) ? employeesData : []);
+      setActiveAllocations(Array.isArray(allocationsData) ? allocationsData : []);
+      setRefreshKey((k) => k + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load data");
     } finally {
@@ -114,7 +123,8 @@ export default function AllocationsPage() {
 
   useEffect(() => {
     refetch();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canAllocate]);
 
   useEffect(() => {
     if (!assetId) {
@@ -163,7 +173,7 @@ export default function AllocationsPage() {
         setConflict(data.currently_held_by ?? null);
         return;
       }
-      if (!res.ok) throw new Error(data.error || "Failed to allocate asset");
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to allocate asset");
 
       setNotice(`Asset allocated successfully.`);
       setHolderId("");
@@ -194,7 +204,7 @@ export default function AllocationsPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to transfer asset");
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to transfer asset");
 
       setNotice(data.message || "Asset transferred successfully.");
       setConflict(null);
@@ -223,7 +233,7 @@ export default function AllocationsPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to mark asset returned");
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to mark asset returned");
 
       setNotice("Asset marked as returned.");
       setReturningId(null);
@@ -262,6 +272,7 @@ export default function AllocationsPage() {
       ) : (
         <>
           {/* Allocate form */}
+          {canAllocate && (
           <Card>
             <CardContent className="pt-6 space-y-4">
               <h2 className="text-lg font-semibold text-foreground">Allocate an Asset</h2>
@@ -273,19 +284,19 @@ export default function AllocationsPage() {
                     setConflict(null);
                     setNotice("");
                   }}
-                  className={cn(inputClass, "cursor-pointer")}
+                  className={inputClass}
                 >
                   <option value="">Select asset</option>
                   {assets.map((a) => (
-                    <option key={a.id} value={a.id} className="cursor-pointer">
+                    <option key={a.id} value={a.id}>
                       {a.assetTag} — {a.name} ({a.status})
                     </option>
                   ))}
                 </select>
-                <select value={holderId} onChange={(e) => setHolderId(e.target.value)} className={cn(inputClass, "cursor-pointer")}>
+                <select value={holderId} onChange={(e) => setHolderId(e.target.value)} className={inputClass}>
                   <option value="">Select employee</option>
                   {employees.map((e) => (
-                    <option key={e.id} value={e.id} className="cursor-pointer"  >
+                    <option key={e.id} value={e.id}>
                       {e.firstName} {e.lastName}
                       {e.departmentName ? ` (${e.departmentName})` : ""}
                     </option>
@@ -310,7 +321,7 @@ export default function AllocationsPage() {
                 </p>
               )}
 
-              <Button onClick={allocate} disabled={allocating} className="cursor-pointer">
+              <Button onClick={allocate} disabled={allocating}>
                 {allocating ? "Allocating..." : "Allocate Asset"}
               </Button>
 
@@ -351,6 +362,7 @@ export default function AllocationsPage() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {/* Active allocations */}
           <div>
@@ -379,7 +391,7 @@ export default function AllocationsPage() {
                         const overdue =
                           a.expectedReturnDate && new Date(a.expectedReturnDate) < new Date();
                         return (
-                          <Fragment key={a.id}>
+                          <>
                             <tr key={a.id}>
                               <td className="px-4 py-3 text-foreground font-medium">
                                 {a.asset ? `${a.asset.assetTag} — ${a.asset.name}` : `#${a.assetId}`}
@@ -410,7 +422,6 @@ export default function AllocationsPage() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="cursor-pointer"
                                   onClick={() => setReturningId(returningId === a.id ? null : a.id)}
                                 >
                                   {returningId === a.id ? "Cancel" : "Mark Returned"}
@@ -426,7 +437,7 @@ export default function AllocationsPage() {
                                       onChange={(e) =>
                                         setReturnCondition({ ...returnCondition, [a.id]: e.target.value })
                                       }
-                                      className={cn(inputClass, "cursor-pointer")}
+                                      className={inputClass}
                                     >
                                       <option value="GOOD">Good</option>
                                       <option value="FAIR">Fair</option>
@@ -444,7 +455,6 @@ export default function AllocationsPage() {
                                       size="sm"
                                       disabled={submittingReturn === a.id}
                                       onClick={() => markReturned(a.id)}
-                                      className="cursor-pointer"
                                     >
                                       {submittingReturn === a.id ? "Submitting..." : "Confirm Return"}
                                     </Button>
@@ -452,7 +462,7 @@ export default function AllocationsPage() {
                                 </td>
                               </tr>
                             )}
-                          </Fragment>
+                          </>
                         );
                       })}
                     </tbody>
@@ -461,6 +471,15 @@ export default function AllocationsPage() {
               </Card>
             )}
           </div>
+
+          {/* Transfer requests + approvals */}
+          <TransferApprovals
+            refreshKey={refreshKey}
+            onChanged={(message) => {
+              if (message) setNotice(message);
+              refetch();
+            }}
+          />
 
           {/* Allocation history for the selected asset */}
           {assetId && (

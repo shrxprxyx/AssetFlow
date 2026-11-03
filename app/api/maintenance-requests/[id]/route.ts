@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/logActivity";
+import { requireAuth } from "@/lib/guards";
 import {
   approveMaintenanceRequest,
   rejectMaintenanceRequest,
@@ -25,10 +26,10 @@ const maintenancePatchSchema = z
 const MANAGER_ROLES = ["ASSET_MANAGER", "ADMIN"];
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "unauthorized", message: "Sign in required" }, { status: 401 });
-  }
+  // Role comes from the database, not the login token.
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
+  const { user } = guard;
 
   const { id: idParam } = await params;
   const id = Number(idParam);
@@ -46,14 +47,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     );
   }
 
-  const actorId = Number(session.user.id);
-  const role = session.user.role as string;
+  const actorId = user.userId;
+  const isManager = MANAGER_ROLES.includes(user.role);
   const { status, technicianId, resolutionNotes } = parsed.data;
 
   try {
     // Approve / Reject — Asset Manager or Admin only
     if (status === "APPROVED" || status === "REJECTED") {
-      if (!MANAGER_ROLES.includes(role)) {
+      if (!isManager) {
         return NextResponse.json(
           { error: "forbidden", message: "Only an Asset Manager or Admin can approve or reject requests" },
           { status: 403 }
@@ -73,7 +74,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     // Assign technician — no status change, just metadata
     if (technicianId && !status) {
-      if (!MANAGER_ROLES.includes(role)) {
+      if (!isManager) {
         return NextResponse.json(
           { error: "forbidden", message: "Only an Asset Manager or Admin can assign a technician" },
           { status: 403 }
@@ -88,19 +89,36 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ request: updated });
     }
 
-    // Start work
-    if (status === "IN_PROGRESS") {
-      const updated = await startMaintenanceRequest(id);
-      await logActivity("maintenance_in_progress", {
-        actorId,
-        resourceType: "MaintenanceRequest",
-        resourceId: id,
+    // Start / resolve work — a manager, or the technician assigned to THIS request
+    if (status === "IN_PROGRESS" || status === "RESOLVED") {
+      const existing = await prisma.maintenanceRequest.findUnique({
+        where: { id },
+        select: { technicianId: true },
       });
-      return NextResponse.json({ request: updated });
-    }
+      if (!existing) {
+        return NextResponse.json({ error: "not_found", message: "Maintenance request not found" }, { status: 404 });
+      }
+      const isAssignedTechnician = existing.technicianId === actorId;
+      if (!isManager && !isAssignedTechnician) {
+        return NextResponse.json(
+          {
+            error: "forbidden",
+            message: "Only an Asset Manager, Admin, or the assigned technician can do this",
+          },
+          { status: 403 }
+        );
+      }
 
-    // Resolve
-    if (status === "RESOLVED") {
+      if (status === "IN_PROGRESS") {
+        const updated = await startMaintenanceRequest(id);
+        await logActivity("maintenance_in_progress", {
+          actorId,
+          resourceType: "MaintenanceRequest",
+          resourceId: id,
+        });
+        return NextResponse.json({ request: updated });
+      }
+
       const updated = await resolveMaintenanceRequest(id, actorId, resolutionNotes);
       await logActivity("maintenance_resolved", {
         actorId,

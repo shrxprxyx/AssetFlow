@@ -19,6 +19,30 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = CreateAllocationSchema.parse(body);
 
+    // A Department Head may only allocate to people (or the department) inside
+    // their own department. Admins and Asset Managers are unrestricted.
+    if (guard.user.role === 'DEPARTMENT_HEAD') {
+      const deptId = guard.user.departmentId;
+      let allowed = false;
+      if (deptId !== null) {
+        if (data.holderType === 'DEPARTMENT') {
+          allowed = data.holderDeptId === deptId;
+        } else if (data.holderId) {
+          const recipient = await prisma.user.findUnique({
+            where: { id: data.holderId },
+            select: { departmentId: true },
+          });
+          allowed = recipient?.departmentId === deptId;
+        }
+      }
+      if (!allowed) {
+        return NextResponse.json(
+          { error: 'forbidden', message: 'Department Heads can only allocate to people in their own department' },
+          { status: 403 }
+        );
+      }
+    }
+
     // Call core allocation logic (row lock + conflict detection + unique index)
     const result = await allocateAsset(
       data.assetId,

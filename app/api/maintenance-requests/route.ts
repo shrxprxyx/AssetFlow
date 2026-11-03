@@ -1,17 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { Prisma } from "@prisma/client";
 import { maintenanceRequestSchema } from "@/lib/schemas";
 import { raiseMaintenanceRequest } from "@/lib/maintenance";
 import { logActivity } from "@/lib/logActivity";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/guards";
 
 export async function GET() {
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
+  const { user } = guard;
+
+  // Who sees which requests:
+  //   Admin / Asset Manager : all of them
+  //   Department Head       : their own + their department's
+  //   Employee              : the ones they raised, or are assigned to as technician
+  let where: Prisma.MaintenanceRequestWhereInput = {};
+  if (user.role === "EMPLOYEE") {
+    where = { OR: [{ requesterId: user.userId }, { technicianId: user.userId }] };
+  } else if (user.role === "DEPARTMENT_HEAD") {
+    where = user.departmentId
+      ? {
+          OR: [
+            { requesterId: user.userId },
+            { technicianId: user.userId },
+            { requester: { departmentId: user.departmentId } },
+          ],
+        }
+      : { OR: [{ requesterId: user.userId }, { technicianId: user.userId }] };
+  }
+
   // Also returns a minimal asset picker list for the "raise request" form.
   // This intentionally does NOT create a general-purpose /api/assets route —
   // that's Person 2's Asset Registry endpoint. Swap this out for a call to
   // theirs once it lands; until then this keeps Maintenance self-contained.
   const [requests, assets] = await Promise.all([
     prisma.maintenanceRequest.findMany({
+      where,
       orderBy: { createdAt: "desc" },
       include: {
         asset: { select: { assetTag: true, name: true } },
@@ -29,14 +54,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json(
-      { error: "unauthorized", message: "Sign in to raise a maintenance request" },
-      { status: 401 }
-    );
-  }
-  const requesterId = Number(session.user.id);
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
+  const requesterId = guard.user.userId;
 
   const body = await req.json();
   const parsed = maintenanceRequestSchema.safeParse(body);

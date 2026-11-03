@@ -1,69 +1,62 @@
-import { prisma } from '@/lib/prisma';
-import { TransferAssetSchema } from '@/lib/schemas';
-import { transferAsset } from '@/lib/allocations';
-import { logActivity } from '@/lib/logActivity';
-import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/auth';
+import { NextRequest, NextResponse } from "next/server";
+import { TransferAssetSchema } from "@/lib/schemas";
+import { createTransferRequest } from "@/lib/transfers";
+import { logActivity } from "@/lib/logActivity";
+import { requireAuth } from "@/lib/guards";
 
+// Creates a transfer REQUEST. The asset doesn't move until it's approved
+// (managers' own requests are approved immediately; see lib/transfers.ts).
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
+  const { user } = guard;
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json(
+      { error: "invalid_json", message: "Request body must be valid JSON" },
+      { status: 400 }
+    );
+  }
+
+  const parsed = TransferAssetSchema.safeParse(body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return NextResponse.json(
+      { error: "validation_error", message: issue.message, field: issue.path[0] },
+      { status: 400 }
+    );
+  }
+  const { assetId, toHolderId, reason } = parsed.data;
 
   try {
-    const body = await req.json();
-    const data = TransferAssetSchema.parse(body);
+    const result = await createTransferRequest(user, { assetId, toHolderId, reason });
 
-    // Get actor ID
-    const actor = await prisma.user.findUnique({
-      where: { email: session.user.email },
-    });
-    if (!actor) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    // Verify toHolder exists
-    const toHolder = await prisma.user.findUnique({
-      where: { id: data.toHolderId },
+    await logActivity(result.autoApproved ? "transfer_completed" : "transfer_requested", {
+      actorId: user.userId,
+      resourceType: "TransferRequest",
+      resourceId: result.request.id,
+      changes: { assetId, toHolderId },
     });
 
-    if (!toHolder) {
-      return NextResponse.json({ error: 'Recipient user not found' }, { status: 400 });
-    }
-
-    // Call transfer logic (handles transaction). fromHolderId is optional on
-    // the wire - when omitted, transferAsset() trusts the DB's current holder
-    // instead of requiring the caller to already know it.
-    const result = await transferAsset(
-      data.assetId,
-      data.fromHolderId,
-      data.toHolderId,
-      data.reason,
-      actor.id
-    );
-
-    if (!result.success) {
-      return NextResponse.json({ error: result.error }, { status: 400 });
-    }
-
-    await logActivity('asset_transferred', {
-      actorId: actor.id,
-      resourceType: 'Asset',
-      resourceId: data.assetId,
-      changes: { toHolderId: data.toHolderId, reason: data.reason },
-    });
-
-    // Success - return new allocation
     return NextResponse.json(
       {
-        success: true,
-        allocation: result.allocation,
-        message: `Asset transferred to ${toHolder.firstName} ${toHolder.lastName}`,
+        request: result.request,
+        autoApproved: result.autoApproved,
+        message: result.autoApproved
+          ? "Asset transferred successfully."
+          : "Transfer request submitted. The asset moves once a manager approves it.",
       },
-      { status: 200 }
+      { status: 201 }
     );
-  } catch (error) {
-    console.error('Error transferring asset:', error);
+  } catch (e: any) {
+    if (e?.status && e?.body) return NextResponse.json(e.body, { status: e.status });
+    console.error(e);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to transfer asset' },
-      { status: 400 }
+      { error: "server_error", message: "Something went wrong creating the transfer request" },
+      { status: 500 }
     );
   }
 }
