@@ -1,14 +1,14 @@
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
-import { Bell, Search, LogOut } from "lucide-react";
+import { Search, LogOut } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
+import { NotificationsBell } from "@/components/notifications-bell";
 
 export function Topbar() {
   const { data: session } = useSession();
@@ -25,10 +25,7 @@ export function Topbar() {
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          {/* wire this up to a real unread count once /api/notifications exists */}
-        </Button>
+        <NotificationsBell />
         <DropdownMenu>
           <DropdownMenuTrigger
             render={

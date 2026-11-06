@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -391,7 +391,7 @@ export default function AllocationsPage() {
                         const overdue =
                           a.expectedReturnDate && new Date(a.expectedReturnDate) < new Date();
                         return (
-                          <>
+                          <Fragment key={a.id}>
                             <tr key={a.id}>
                               <td className="px-4 py-3 text-foreground font-medium">
                                 {a.asset ? `${a.asset.assetTag} — ${a.asset.name}` : `#${a.assetId}`}
@@ -462,7 +462,7 @@ export default function AllocationsPage() {
                                 </td>
                               </tr>
                             )}
-                          </>
+                          </Fragment>
                         );
                       })}
                     </tbody>
