@@ -131,12 +131,19 @@ export async function resolveMaintenanceRequest(id: number, resolverId: number, 
       data: { status: "RESOLVED", resolvedAt: new Date(), resolutionNotes },
     });
 
-    await tx.asset.update({ where: { id: request.assetId }, data: { status: "AVAILABLE" } });
+    // If someone still holds the asset, it goes back to ALLOCATED, not AVAILABLE.
+    const activeAllocation = await tx.allocation.findFirst({
+      where: { assetId: request.assetId, status: "ACTIVE" },
+      select: { id: true },
+    });
+    const nextStatus = activeAllocation ? "ALLOCATED" : "AVAILABLE";
+
+    await tx.asset.update({ where: { id: request.assetId }, data: { status: nextStatus } });
     await tx.assetHistory.create({
       data: {
         assetId: request.assetId,
         fromStatus: "UNDER_MAINTENANCE",
-        toStatus: "AVAILABLE",
+        toStatus: nextStatus,
         actorId: resolverId,
         reason: "Maintenance resolved",
       },

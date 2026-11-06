@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma';
+import { prisma, Prisma } from '@/lib/prisma';
 import { CreateAssetSchema } from '@/lib/schemas';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
@@ -41,32 +41,50 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Generate asset tag: AF-NNNN
-    const count = await prisma.asset.count();
-    const assetTag = `AF-${String(count + 1).padStart(4, '0')}`;
+    // Generate asset tag: AF-NNNN, retried if a concurrent insert takes the same tag
+    async function nextAssetTag() {
+      const last = await prisma.asset.findFirst({
+        orderBy: { assetTag: 'desc' },
+        select: { assetTag: true },
+      });
+      const lastNum = last ? parseInt(last.assetTag.replace('AF-', ''), 10) : 0;
+      return `AF-${String(lastNum + 1).padStart(4, '0')}`;
+    }
 
     // Parse acquisition date if provided
     const acquisitionDate = data.acquisitionDate
       ? new Date(data.acquisitionDate)
       : null;
 
-    const asset = await prisma.asset.create({
-      data: {
-        assetTag,
-        name: data.name,
-        categoryId: data.categoryId,
-        serialNumber: data.serialNumber,
-        acquisitionDate,
-        acquisitionCost: data.acquisitionCost,
-        condition: data.condition,
-        location: data.location,
-        isBookable: data.isBookable,
-        photoUrl: data.photoUrl,
-        notes: data.notes,
-        status: 'AVAILABLE',
-      },
-      include: { category: { select: { name: true } } },
-    });
+    let asset = null;
+    for (let attempt = 0; attempt < 5 && !asset; attempt++) {
+      const assetTag = await nextAssetTag();
+      try {
+        asset = await prisma.asset.create({
+          data: {
+            assetTag,
+            name: data.name,
+            categoryId: data.categoryId,
+            serialNumber: data.serialNumber,
+            acquisitionDate,
+            acquisitionCost: data.acquisitionCost,
+            condition: data.condition,
+            location: data.location,
+            isBookable: data.isBookable,
+            photoUrl: data.photoUrl,
+            notes: data.notes,
+            status: 'AVAILABLE',
+          },
+          include: { category: { select: { name: true } } },
+        });
+      } catch (e) {
+        // P2002 = unique constraint on assetTag; retry. Anything else is a real error.
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
+      }
+    }
+    if (!asset) {
+      return NextResponse.json({ error: 'Could not generate a unique asset tag, please retry' }, { status: 409 });
+    }
 
     return NextResponse.json(asset);
   } catch (error) {
