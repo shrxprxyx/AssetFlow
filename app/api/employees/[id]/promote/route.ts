@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/logActivity";
 import { requireAuth } from "@/lib/guards";
 
+// Changes an employee's role (promote or demote). Admin only.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
@@ -27,9 +28,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     );
   }
 
+  if (employeeId === guard.user.userId) {
+    return NextResponse.json({ error: "self_change", message: "You can't change your own role" }, { status: 400 });
+  }
+
   const target = await prisma.user.findUnique({ where: { id: employeeId } });
   if (!target) {
     return NextResponse.json({ error: "not_found", message: "Employee not found" }, { status: 404 });
+  }
+  if (target.role === "ADMIN") {
+    return NextResponse.json({ error: "admin_target", message: "Admin roles can't be changed here" }, { status: 400 });
   }
 
   const updated = await prisma.user.update({

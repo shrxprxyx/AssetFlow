@@ -466,16 +466,21 @@ function CategoriesTab() {
 
 function EmployeesTab() {
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [promotingId, setPromotingId] = useState<number | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
   const [roleChoice, setRoleChoice] = useState<Record<number, string>>({});
 
   async function refetch() {
     setLoading(true);
     try {
-      const res = await fetch("/api/employees");
-      setEmployees(await res.json());
+      const [empRes, deptRes] = await Promise.all([
+        fetch("/api/employees"),
+        fetch("/api/departments"),
+      ]);
+      setEmployees(await empRes.json());
+      setDepartments(await deptRes.json());
     } catch {
       setError("Failed to load employees");
     } finally {
@@ -487,27 +492,28 @@ function EmployeesTab() {
     refetch();
   }, []);
 
-  async function promote(id: number) {
-    const role = roleChoice[id] || "ASSET_MANAGER";
+  async function send(id: number, url: string, method: string, body: unknown) {
     setError("");
-    setPromotingId(id);
+    setBusyId(id);
     try {
-      const res = await fetch(`/api/employees/${id}/promote`, {
-        method: "POST",
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.error || "Failed to promote employee");
+      if (!res.ok) throw new Error(data.message || data.error || "Request failed");
       refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to promote employee");
+      setError(e instanceof Error ? e.message : "Request failed");
     } finally {
-      setPromotingId(null);
+      setBusyId(null);
     }
   }
 
   if (loading) return <LoadingState message="Loading employees..." />;
+
+  const activeDepartments = departments.filter((d) => d.status === "ACTIVE");
 
   return (
     <div className="space-y-4">
@@ -518,8 +524,8 @@ function EmployeesTab() {
       )}
 
       <p className="text-sm text-muted-foreground">
-        {employees.length} employee{employees.length !== 1 ? "s" : ""} — this is the only place
-        roles are assigned. Signup always creates an Employee.
+        {employees.length} employee{employees.length !== 1 ? "s" : ""}. Assign departments, change roles,
+        and activate or deactivate accounts. Admin accounts can't be changed here.
       </p>
 
       {employees.length === 0 ? (
@@ -534,58 +540,100 @@ function EmployeesTab() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Department</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Role</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Promote</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {employees.map((e) => (
-                <tr key={e.id}>
-                  <td className="px-4 py-3 text-foreground font-medium">
-                    {e.firstName} {e.lastName}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{e.email}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{e.departmentName ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <Pill className={ROLE_STYLES[e.role]}>{e.role.replace("_", " ")}</Pill>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Pill
-                      className={
-                        e.status === "ACTIVE"
-                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                          : "bg-muted text-muted-foreground"
-                      }
-                    >
-                      {e.status}
-                    </Pill>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {e.role === "EMPLOYEE" ? (
-                      <div className="flex items-center gap-2 justify-end">
+              {employees.map((e) => {
+                const isAdmin = e.role === "ADMIN";
+                const busy = busyId === e.id;
+                const currentRole = e.role;
+                const chosen = roleChoice[e.id] ?? currentRole;
+                return (
+                  <tr key={e.id}>
+                    <td className="px-4 py-3 text-foreground font-medium">
+                      {e.firstName} {e.lastName}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{e.email}</td>
+                    <td className="px-4 py-3">
+                      {isAdmin ? (
+                        <span className="text-muted-foreground">{e.departmentName ?? "—"}</span>
+                      ) : (
                         <select
-                          value={roleChoice[e.id] || "ASSET_MANAGER"}
+                          value={e.departmentId ?? ""}
+                          disabled={busy}
                           onChange={(ev) =>
-                            setRoleChoice({ ...roleChoice, [e.id]: ev.target.value })
+                            send(
+                              e.id,
+                              `/api/employees/${e.id}/department`,
+                              "POST",
+                              { departmentId: ev.target.value ? Number(ev.target.value) : null }
+                            )
                           }
                           className="h-8 px-2 rounded-lg bg-background border border-border text-foreground text-xs focus:outline-none focus:ring-3 focus:ring-ring/50"
                         >
-                          <option value="ASSET_MANAGER">Asset Manager</option>
-                          <option value="DEPARTMENT_HEAD">Department Head</option>
+                          <option value="">No department</option>
+                          {activeDepartments.map((d) => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                          ))}
                         </select>
-                        <Button
-                          size="sm"
-                          disabled={promotingId === e.id}
-                          onClick={() => promote(e.id)}
-                        >
-                          {promotingId === e.id ? "Promoting..." : "Promote"}
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground text-xs">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Pill className={ROLE_STYLES[e.role]}>{e.role.replace("_", " ")}</Pill>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Pill
+                        className={
+                          e.status === "ACTIVE"
+                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                            : "bg-muted text-muted-foreground"
+                        }
+                      >
+                        {e.status}
+                      </Pill>
+                    </td>
+                    <td className="px-4 py-3">
+                      {isAdmin ? (
+                        <span className="block text-right text-muted-foreground text-xs">—</span>
+                      ) : (
+                        <div className="flex items-center gap-2 justify-end">
+                          <select
+                            value={chosen}
+                            disabled={busy}
+                            onChange={(ev) => setRoleChoice({ ...roleChoice, [e.id]: ev.target.value })}
+                            className="h-8 px-2 rounded-lg bg-background border border-border text-foreground text-xs focus:outline-none focus:ring-3 focus:ring-ring/50"
+                          >
+                            <option value="EMPLOYEE">Employee</option>
+                            <option value="ASSET_MANAGER">Asset Manager</option>
+                            <option value="DEPARTMENT_HEAD">Department Head</option>
+                          </select>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busy || chosen === currentRole}
+                            onClick={() => send(e.id, `/api/employees/${e.id}/promote`, "POST", { role: chosen })}
+                          >
+                            Save role
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={e.status === "ACTIVE" ? "destructive" : "default"}
+                            disabled={busy}
+                            onClick={() =>
+                              send(e.id, `/api/employees/${e.id}/status`, "PATCH", {
+                                status: e.status === "ACTIVE" ? "INACTIVE" : "ACTIVE",
+                              })
+                            }
+                          >
+                            {e.status === "ACTIVE" ? "Deactivate" : "Reactivate"}
+                          </Button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

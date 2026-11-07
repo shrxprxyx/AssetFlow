@@ -18,7 +18,7 @@ export type LoginInput = z.infer<typeof loginSchema>;
 // ── Employee/Promote Schema ───────────────────────────
 // Deliberately excludes ADMIN — nobody can self-promote to Admin via this endpoint
 export const promoteSchema = z.object({
-  role: z.enum(["ASSET_MANAGER", "DEPARTMENT_HEAD"]),
+  role: z.enum(["EMPLOYEE", "ASSET_MANAGER", "DEPARTMENT_HEAD"]),
 });
 export type PromoteInput = z.infer<typeof promoteSchema>;
 
