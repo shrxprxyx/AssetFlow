@@ -89,7 +89,7 @@ export default function OrganizationSetupPage() {
               key={t}
               onClick={() => setTab(t)}
               className={cn(
-                "shrink-0 px-4 pb-3 pt-1 text-sm font-medium border-b-2 -mb-px transition-colors",
+                "shrink-0 px-4 pb-3 pt-1 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer",
                 tab === t
                   ? "text-foreground border-primary"
                   : "text-muted-foreground border-transparent hover:text-foreground"
@@ -218,7 +218,7 @@ function DepartmentsTab() {
         <p className="text-sm text-muted-foreground">
           {departments.length} department{departments.length !== 1 ? "s" : ""}
         </p>
-        <Button onClick={() => setShowForm((s) => !s)}>
+        <Button className="cursor-pointer" onClick={() => setShowForm((s) => !s)}>
           {showForm ? "Cancel" : "+ Add Department"}
         </Button>
       </div>
@@ -263,7 +263,7 @@ function DepartmentsTab() {
               ))}
             </select>
           </div>
-          <Button onClick={createDepartment} disabled={submitting}>
+          <Button className='cursor-pointer' onClick={createDepartment} disabled={submitting}>
             {submitting ? "Creating..." : "Create Department"}
           </Button>
         </div>
@@ -305,7 +305,7 @@ function DepartmentsTab() {
                     </Pill>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Button variant="outline" size="sm" onClick={() => toggleStatus(d)}>
+                    <Button variant="outline" className='cursor-pointer' size="sm" onClick={() => toggleStatus(d)}>
                       {d.status === "ACTIVE" ? "Deactivate" : "Reactivate"}
                     </Button>
                   </td>
@@ -403,7 +403,7 @@ function CategoriesTab() {
         <p className="text-sm text-muted-foreground">
           {categories.length} categor{categories.length !== 1 ? "ies" : "y"}
         </p>
-        <Button onClick={() => setShowForm((s) => !s)}>
+        <Button className='cursor-pointer' onClick={() => setShowForm((s) => !s)}>
           {showForm ? "Cancel" : "+ Add Category"}
         </Button>
       </div>
@@ -424,7 +424,7 @@ function CategoriesTab() {
               className="h-10 px-3 rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-3 focus:ring-ring/50"
             />
           </div>
-          <Button onClick={createCategory} disabled={submitting}>
+          <Button className='cursor-pointer' onClick={createCategory} disabled={submitting}>
             {submitting ? "Creating..." : "Create Category"}
           </Button>
         </div>
@@ -448,7 +448,7 @@ function CategoriesTab() {
                   <td className="px-4 py-3 text-foreground font-medium">{c.name}</td>
                   <td className="px-4 py-3 text-muted-foreground">{c.description || "—"}</td>
                   <td className="px-4 py-3 text-right">
-                    <Button variant="destructive" size="sm" onClick={() => deleteCategory(c.id)}>
+                    <Button className='cursor-pointer' variant="destructive" size="sm" onClick={() => deleteCategory(c.id)}>
                       Delete
                     </Button>
                   </td>
@@ -611,6 +611,7 @@ function EmployeesTab() {
                           <Button
                             size="sm"
                             variant="outline"
+                            className="cursor-pointer"
                             disabled={busy || chosen === currentRole}
                             onClick={() => send(e.id, `/api/employees/${e.id}/promote`, "POST", { role: chosen })}
                           >
@@ -618,6 +619,7 @@ function EmployeesTab() {
                           </Button>
                           <Button
                             size="sm"
+                            className="cursor-pointer"
                             variant={e.status === "ACTIVE" ? "destructive" : "default"}
                             disabled={busy}
                             onClick={() =>

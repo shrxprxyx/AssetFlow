@@ -20,6 +20,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         });
         if (!user) return null;
 
+        // Deactivated accounts can't sign in. Checked before the password so a
+        // deactivated user gets the same generic error either way.
+        if (user.status !== "ACTIVE") return null;
+
         const valid = await bcrypt.compare(credentials.password as string, user.passwordHash);
         if (!valid) return null;
 
