@@ -2,7 +2,7 @@
 
 import { ReactNode, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { Toaster } from "sonner";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -23,6 +23,21 @@ export default function ProtectedLayout({ children }: LayoutProps) {
       router.push("/login");
     }
   }, [status, router]);
+
+  // The session cookie can outlive a deactivation, so check the database on
+  // load and on each page change. An inactive account is signed out.
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    fetch("/api/me", { cache: "no-store" })
+      .then((res) => {
+        if (res.status === 401) {
+          signOut({ callbackUrl: "/login" });
+        }
+      })
+      .catch(() => {
+        /* network blip: the next navigation will check again */
+      });
+  }, [status, pathname]);
 
   if (status === "loading") {
     return <LoadingState message="Loading..." />;
