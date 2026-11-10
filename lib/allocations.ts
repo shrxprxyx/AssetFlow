@@ -165,7 +165,9 @@ export async function allocateAsset(
             id: existingAllocation.holder?.id ?? 0,
             name: existingAllocation.holder
               ? `${existingAllocation.holder.firstName} ${existingAllocation.holder.lastName}`
-              : "Unknown",
+              : existingAllocation.holderDeptId
+                ? `Department #${existingAllocation.holderDeptId}`
+                : "Unknown",
             allocatedDate: existingAllocation.allocatedDate,
           },
         };

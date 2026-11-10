@@ -23,13 +23,18 @@ export const promoteSchema = z.object({
 export type PromoteInput = z.infer<typeof promoteSchema>;
 
 // ── Department Schemas ───────────────────────────────
-export const departmentSchema = z.object({
+const departmentBase = z.object({
   name: z.string().min(1, "Department name required"),
   description: z.string().optional(),
-  headId: z.number().optional().nullable(),
-  parentDeptId: z.number().optional().nullable(),
-  status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),
+  headId: z.number().int().positive().optional().nullable(),
+  parentDeptId: z.number().int().positive().optional().nullable(),
+  status: z.enum(["ACTIVE", "INACTIVE"]),
 });
+export const departmentSchema = departmentBase.extend({
+  status: departmentBase.shape.status.default("ACTIVE"),
+});
+// No defaults here, so a PUT of { name } can't silently flip status back to ACTIVE.
+export const departmentUpdateSchema = departmentBase.partial();
 export type DepartmentInput = z.infer<typeof departmentSchema>;
 
 // ── Asset Category Schemas ───────────────────────────
@@ -37,6 +42,9 @@ export const categorySchema = z.object({
   name: z.string().min(1, "Category name required").max(100),
   description: z.string().optional(),
 });
+export const categoryUpdateSchema = categorySchema
+  .extend({ customFields: z.string() })
+  .partial();
 export type CategoryInput = z.infer<typeof categorySchema>;
 
 // ── Asset Schemas ────────────────────────────────────
@@ -54,11 +62,25 @@ export const assetSchema = z.object({
 export type AssetInput = z.infer<typeof assetSchema>;
 
 // ── Allocation Schemas ───────────────────────────────
-export const allocationSchema = z.object({
+const allocationBase = z.object({
   assetId: z.coerce.number().int().positive(),
-  holderId: z.coerce.number().int().positive("Employee required"),
   holderType: z.enum(["EMPLOYEE", "DEPARTMENT"]).default("EMPLOYEE"),
-  expectedReturnDate: z.coerce.date().optional(),
+  holderId: z.coerce.number().int().positive().optional(),
+  holderDeptId: z.coerce.number().int().positive().optional(),
+  // "" and null mean "no return date" (null used to coerce to 1970-01-01)
+  expectedReturnDate: z.preprocess(
+    (v) => (v === "" || v === null ? undefined : v),
+    z.coerce.date().optional()
+  ),
+});
+
+export const allocationSchema = allocationBase.superRefine((d, ctx) => {
+  if (d.holderType === "EMPLOYEE" && !d.holderId) {
+    ctx.addIssue({ code: "custom", path: ["holderId"], message: "Employee required" });
+  }
+  if (d.holderType === "DEPARTMENT" && !d.holderDeptId) {
+    ctx.addIssue({ code: "custom", path: ["holderDeptId"], message: "Department required" });
+  }
 });
 export type AllocationInput = z.infer<typeof allocationSchema>;
 
@@ -122,27 +144,21 @@ export type AuditFindingInput = z.infer<typeof auditFindingSchema>;
 
 export const DepartmentSchema = departmentSchema;
 export const CreateDepartmentSchema = departmentSchema;
-export const UpdateDepartmentSchema = departmentSchema.partial();
+export const UpdateDepartmentSchema = departmentUpdateSchema;
 
 export const AssetCategorySchema = categorySchema.extend({
   customFields: z.string().default("{}"),
 });
-
 export const CreateAssetCategorySchema = AssetCategorySchema;
-export const UpdateAssetCategorySchema = AssetCategorySchema.partial();
+export const UpdateAssetCategorySchema = categoryUpdateSchema;
 
 export const AssetSchema = assetSchema.extend({
   photoUrl: z.string().optional(),
 });
-
 export const CreateAssetSchema = AssetSchema;
 
-export const AllocationSchema = allocationSchema.extend({
-  holderDeptId: z.number().optional().nullable(),
-});
-
-export const CreateAllocationSchema = AllocationSchema;
+export const AllocationSchema = allocationSchema;
+export const CreateAllocationSchema = allocationSchema;
 
 export const ReturnAssetSchema = allocationReturnSchema;
-
 export const TransferAssetSchema = transferRequestSchema;

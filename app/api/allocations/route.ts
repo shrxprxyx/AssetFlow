@@ -3,6 +3,7 @@ import { CreateAllocationSchema } from '@/lib/schemas';
 import { allocateAsset } from '@/lib/allocations';
 import { logActivity } from '@/lib/logActivity';
 import { requireAuth } from '@/lib/guards';
+import { readJson, validationError } from '@/lib/http';
 import { NextRequest, NextResponse } from 'next/server';
 import { AllocationStatus, Prisma } from '@prisma/client';
 
@@ -15,75 +16,87 @@ export async function POST(req: NextRequest) {
   if (!guard.ok) return guard.response;
   const actorId = guard.user.userId;
 
+  const json = await readJson(req);
+  if (!json.ok) return json.response;
+  const parsed = CreateAllocationSchema.safeParse(json.body);
+  if (!parsed.success) return validationError(parsed.error);
+  const data = parsed.data;
+
+  // The target must exist and be active; this also tells us which department it belongs to.
+  let targetDeptId: number | null;
+  if (data.holderType === 'EMPLOYEE') {
+    const recipient = await prisma.user.findUnique({
+      where: { id: data.holderId! },
+      select: { status: true, departmentId: true },
+    });
+    if (!recipient || recipient.status !== 'ACTIVE') {
+      return NextResponse.json(
+        { error: 'invalid_recipient', message: 'Recipient not found or inactive', field: 'holderId' },
+        { status: 400 }
+      );
+    }
+    targetDeptId = recipient.departmentId;
+  } else {
+    const dept = await prisma.department.findUnique({
+      where: { id: data.holderDeptId! },
+      select: { status: true },
+    });
+    if (!dept || dept.status !== 'ACTIVE') {
+      return NextResponse.json(
+        { error: 'invalid_department', message: 'Department not found or inactive', field: 'holderDeptId' },
+        { status: 400 }
+      );
+    }
+    targetDeptId = data.holderDeptId!;
+  }
+
+  // A Department Head may only allocate inside their own department.
+  if (guard.user.role === 'DEPARTMENT_HEAD') {
+    if (guard.user.departmentId === null || targetDeptId !== guard.user.departmentId) {
+      return NextResponse.json(
+        { error: 'forbidden', message: 'Department Heads can only allocate to people in their own department' },
+        { status: 403 }
+      );
+    }
+  }
+
+  const result = await allocateAsset(
+    data.assetId,
+    data.holderType === 'EMPLOYEE' ? data.holderId! : null,
+    data.holderType === 'DEPARTMENT' ? data.holderDeptId! : null,
+    data.holderType,
+    data.expectedReturnDate,
+    actorId
+  );
+
+  if (!result.success) {
+    if (result.currentlyHeldBy) {
+      return NextResponse.json(
+        {
+          error: 'asset_already_allocated',
+          message: 'This asset is already allocated',
+          currentlyHeldBy: result.currentlyHeldBy,
+          currently_held_by: result.currentlyHeldBy, // legacy key the current UI reads
+        },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({ error: result.error, message: result.error }, { status: 400 });
+  }
+
+  // The allocation is already committed; a logging failure must not report it as failed.
   try {
-    const body = await req.json();
-    const data = CreateAllocationSchema.parse(body);
-
-    // A Department Head may only allocate to people (or the department) inside
-    // their own department. Admins and Asset Managers are unrestricted.
-    if (guard.user.role === 'DEPARTMENT_HEAD') {
-      const deptId = guard.user.departmentId;
-      let allowed = false;
-      if (deptId !== null) {
-        if (data.holderType === 'DEPARTMENT') {
-          allowed = data.holderDeptId === deptId;
-        } else if (data.holderId) {
-          const recipient = await prisma.user.findUnique({
-            where: { id: data.holderId },
-            select: { departmentId: true },
-          });
-          allowed = recipient?.departmentId === deptId;
-        }
-      }
-      if (!allowed) {
-        return NextResponse.json(
-          { error: 'forbidden', message: 'Department Heads can only allocate to people in their own department' },
-          { status: 403 }
-        );
-      }
-    }
-
-    // Call core allocation logic (row lock + conflict detection + unique index)
-    const result = await allocateAsset(
-      data.assetId,
-      data.holderId || null,
-      data.holderDeptId || null,
-      data.holderType,
-      data.expectedReturnDate ? new Date(data.expectedReturnDate) : undefined,
-      actorId
-    );
-
-    if (!result.success) {
-      // Conflict detected - return 409 with conflict info
-      if (result.currentlyHeldBy) {
-        return NextResponse.json(
-          {
-            error: result.error,
-            currently_held_by: result.currentlyHeldBy,
-          },
-          { status: 409 }
-        );
-      }
-      // Other error
-      return NextResponse.json({ error: result.error }, { status: 400 });
-    }
-
     await logActivity('asset_allocated', {
       actorId,
       resourceType: 'Asset',
       resourceId: data.assetId,
-      changes: { holderId: data.holderId, holderDeptId: data.holderDeptId },
+      changes: { holderId: data.holderId ?? null, holderDeptId: data.holderDeptId ?? null },
     });
-
-    // Success
-    return NextResponse.json(result.allocation, { status: 200 });
-  } catch (error) {
-    console.error('Error allocating asset:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to allocate asset' },
-      { status: 400 }
-    );
+  } catch (err) {
+    console.error('activity log failed for asset_allocated', err);
   }
+
+  return NextResponse.json(result.allocation, { status: 201 });
 }
 
 export async function GET(req: NextRequest) {

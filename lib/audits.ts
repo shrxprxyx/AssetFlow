@@ -3,7 +3,6 @@ import { prisma } from "./prisma";
 export type ScopedAsset = {
   id: number;
   assetTag: string;
-  
   name: string;
   location: string | null;
   condition: string;
@@ -41,7 +40,7 @@ export async function getAssetsInScope(
     if (!department) return [];
 
     return prisma.asset.findMany({
-      where: { location: { contains: department.name } },
+      where: { location: { contains: department.name, mode: "insensitive" } },
       orderBy: { assetTag: "asc" },
       select: ASSET_SELECT,
     });

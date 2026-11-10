@@ -1,47 +1,32 @@
 import { prisma, Prisma } from '@/lib/prisma';
 import { CreateAssetSchema } from '@/lib/schemas';
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/auth';
 import { AssetStatus } from '@prisma/client';
+import { requireAuth } from '@/lib/guards';
+import { readJson, validationError } from '@/lib/http';
 
 const VALID_ASSET_STATUSES = Object.values(AssetStatus);
+const ci = (v: string) => ({ contains: v, mode: 'insensitive' as const });
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const guard = await requireAuth('ADMIN', 'ASSET_MANAGER');
+  if (!guard.ok) return guard.response;
 
-  // Only Admin or AssetManager can register assets
-  const user = await prisma.user.findUnique({ where: { email: session.user.email } });
-  if (!user || !['ADMIN', 'ASSET_MANAGER'].includes(user.role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const json = await readJson(req);
+  if (!json.ok) return json.response;
+  const parsed = CreateAssetSchema.safeParse(json.body);
+  if (!parsed.success) return validationError(parsed.error);
+  const data = parsed.data;
 
   try {
-    const body = await req.json();
-    const data = CreateAssetSchema.parse(body);
-
-    // Validate category exists
-    const category = await prisma.assetCategory.findUnique({
-      where: { id: data.categoryId },
-    });
+    const category = await prisma.assetCategory.findUnique({ where: { id: data.categoryId } });
     if (!category) {
-      return NextResponse.json({ error: 'Category not found' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'validation_error', message: 'Category not found', field: 'categoryId' },
+        { status: 400 }
+      );
     }
 
-    // Check serial number uniqueness if provided
-    if (data.serialNumber) {
-      const existing = await prisma.asset.findFirst({
-        where: { serialNumber: data.serialNumber },
-      });
-      if (existing) {
-        return NextResponse.json(
-          { error: 'Asset with this serial number already exists' },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Generate asset tag: AF-NNNN, retried if a concurrent insert takes the same tag
     async function nextAssetTag() {
       const last = await prisma.asset.findFirst({
         orderBy: { assetTag: 'desc' },
@@ -50,11 +35,6 @@ export async function POST(req: NextRequest) {
       const lastNum = last ? parseInt(last.assetTag.replace('AF-', ''), 10) : 0;
       return `AF-${String(lastNum + 1).padStart(4, '0')}`;
     }
-
-    // Parse acquisition date if provided
-    const acquisitionDate = data.acquisitionDate
-      ? new Date(data.acquisitionDate)
-      : null;
 
     let asset = null;
     for (let attempt = 0; attempt < 5 && !asset; attempt++) {
@@ -65,8 +45,8 @@ export async function POST(req: NextRequest) {
             assetTag,
             name: data.name,
             categoryId: data.categoryId,
-            serialNumber: data.serialNumber,
-            acquisitionDate,
+            serialNumber: data.serialNumber || null,
+            acquisitionDate: data.acquisitionDate ?? null,
             acquisitionCost: data.acquisitionCost,
             condition: data.condition,
             location: data.location,
@@ -78,34 +58,43 @@ export async function POST(req: NextRequest) {
           include: { category: { select: { name: true } } },
         });
       } catch (e) {
-        // P2002 = unique constraint on assetTag; retry. Anything else is a real error.
         if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
+        // Unique violation: duplicate serial (real conflict) or a tag race (retry).
+        if (String(e.meta?.target ?? '').includes('serialNumber')) {
+          return NextResponse.json(
+            { error: 'serial_taken', message: 'An asset with this serial number already exists', field: 'serialNumber' },
+            { status: 409 }
+          );
+        }
       }
     }
     if (!asset) {
-      return NextResponse.json({ error: 'Could not generate a unique asset tag, please retry' }, { status: 409 });
+      return NextResponse.json(
+        { error: 'tag_conflict', message: 'Could not generate a unique asset tag, please retry' },
+        { status: 409 }
+      );
     }
 
-    return NextResponse.json(asset);
+    return NextResponse.json(asset, { status: 201 });
   } catch (error) {
     console.error('Error creating asset:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to create asset' },
-      { status: 400 }
+      { error: 'server_error', message: 'Failed to create asset' },
+      { status: 500 }
     );
   }
 }
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const guard = await requireAuth();
+  if (!guard.ok) return guard.response;
 
   try {
     const { searchParams } = new URL(req.url);
     const tag = searchParams.get('tag');
     const serial = searchParams.get('serial');
     const name = searchParams.get('name');
-    const categoryId = searchParams.get('categoryId');
+    const categoryParam = searchParams.get('categoryId');
     const statusParam = searchParams.get('status');
     const location = searchParams.get('location');
 
@@ -115,16 +104,22 @@ export async function GET(req: NextRequest) {
         { status: 400 }
       );
     }
-    const status = statusParam as AssetStatus | null;
+    const categoryId = categoryParam ? Number(categoryParam) : null;
+    if (categoryParam && (!Number.isInteger(categoryId) || categoryId! <= 0)) {
+      return NextResponse.json(
+        { error: 'validation_error', message: 'categoryId must be a positive integer', field: 'categoryId' },
+        { status: 400 }
+      );
+    }
 
     const assets = await prisma.asset.findMany({
       where: {
-        ...(tag && { assetTag: { contains: tag } }),
-        ...(serial && { serialNumber: { contains: serial } }),
-        ...(name && { name: { contains: name } }),
-        ...(categoryId && { categoryId: parseInt(categoryId) }),
-        ...(status && { status }),
-        ...(location && { location: { contains: location } }),
+        ...(tag && { assetTag: ci(tag) }),
+        ...(serial && { serialNumber: ci(serial) }),
+        ...(name && { name: ci(name) }),
+        ...(categoryId && { categoryId }),
+        ...(statusParam && { status: statusParam as AssetStatus }),
+        ...(location && { location: ci(location) }),
       },
       include: {
         category: { select: { name: true } },
@@ -138,8 +133,7 @@ export async function GET(req: NextRequest) {
       take: 100,
     });
 
-    // Format response to flatten allocations
-    const formatted = assets.map((asset: typeof assets[number]) => ({
+    const formatted = assets.map((asset: (typeof assets)[number]) => ({
       ...asset,
       currentHolder: asset.allocations[0]?.holder || null,
       allocations: undefined,
@@ -148,9 +142,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(formatted);
   } catch (error) {
     console.error('Error fetching assets:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch assets' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch assets' }, { status: 500 });
   }
 }

@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ── Enums ────────────────────────────────────────────
@@ -224,9 +225,10 @@ model Allocation {
   @@index([holderId])
   @@index([status])
   @@index([expectedReturnDate])
-  // No declarative partial-unique index in SQLite via Prisma —
-  // "only one ACTIVE allocation per asset" is enforced in the
-  // $transaction in lib/allocations.ts (Section 10 of the plan).
+  @@index([assetId, status])
+  // "Only one ACTIVE allocation per asset" is enforced by a partial unique
+  // index created in raw SQL (migration 20261017120000_concurrency_constraints).
+  // Prisma can't declare it, so DON'T let `migrate dev` drop it.
 }
 
 model TransferRequest {
@@ -271,8 +273,9 @@ model ResourceBooking {
   @@index([bookerId])
   @@index([status])
   @@index([startTime, endTime])
-  // Overlap prevention enforced in lib/bookings.ts, not a DB constraint
-  // (SQLite has no exclusion constraints) — see Section 10.
+  @@index([resourceId, startTime, endTime])
+  // Overlap prevention: row lock in lib/bookings.ts plus the gist exclusion
+  // constraint "booking_no_overlap" (raw SQL migration). Prisma can't declare it.
 }
 
 // ── Maintenance ──────────────────────────────────────
@@ -391,4 +394,5 @@ model ActivityLog {
   @@index([actorId])
   @@index([resourceType, resourceId])
   @@index([timestamp])
+  @@index([actorId, timestamp])
 }

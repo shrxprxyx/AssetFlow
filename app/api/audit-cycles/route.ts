@@ -13,7 +13,9 @@ async function countAssetsInScope(scopeType: string, scopeId: number | null) {
       select: { name: true },
     });
     if (!department) return 0;
-    return prisma.asset.count({ where: { location: { contains: department.name } } });
+    return prisma.asset.count({
+      where: { location: { contains: department.name, mode: "insensitive" } },
+    });
   }
   return prisma.asset.count();
 }
