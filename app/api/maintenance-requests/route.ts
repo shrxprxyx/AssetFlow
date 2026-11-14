@@ -5,6 +5,7 @@ import { raiseMaintenanceRequest } from "@/lib/maintenance";
 import { logActivity } from "@/lib/logActivity";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/guards";
+import { readJson, validationError } from "@/lib/http";
 
 export async function GET() {
   const guard = await requireAuth();
@@ -31,9 +32,7 @@ export async function GET() {
   }
 
   // Also returns a minimal asset picker list for the "raise request" form.
-  // This intentionally does NOT create a general-purpose /api/assets route —
-  // that's Person 2's Asset Registry endpoint. Swap this out for a call to
-  // theirs once it lands; until then this keeps Maintenance self-contained.
+  // Lost, retired and disposed assets are left out: they can't be maintained.
   const [requests, assets] = await Promise.all([
     prisma.maintenanceRequest.findMany({
       where,
@@ -44,7 +43,7 @@ export async function GET() {
       },
     }),
     prisma.asset.findMany({
-      where: { status: { notIn: ["LOST", "DISPOSED"] } },
+      where: { status: { notIn: ["LOST", "RETIRED", "DISPOSED"] } },
       select: { id: true, assetTag: true, name: true, status: true },
       orderBy: { assetTag: "asc" },
     }),
@@ -58,15 +57,10 @@ export async function POST(req: NextRequest) {
   if (!guard.ok) return guard.response;
   const requesterId = guard.user.userId;
 
-  const body = await req.json();
-  const parsed = maintenanceRequestSchema.safeParse(body);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return NextResponse.json(
-      { error: "validation_error", message: issue.message, field: issue.path[0] },
-      { status: 400 }
-    );
-  }
+  const json = await readJson(req);
+  if (!json.ok) return json.response;
+  const parsed = maintenanceRequestSchema.safeParse(json.body);
+  if (!parsed.success) return validationError(parsed.error);
   const { assetId, description, priority } = parsed.data;
 
   try {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/logActivity";
 import { requireAuth } from "@/lib/guards";
+import { readJson, validationError } from "@/lib/http";
 import {
   approveMaintenanceRequest,
   rejectMaintenanceRequest,
@@ -37,15 +38,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "invalid_id", message: "Invalid request id" }, { status: 400 });
   }
 
-  const body = await req.json();
-  const parsed = maintenancePatchSchema.safeParse(body);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return NextResponse.json(
-      { error: "validation_error", message: issue.message, field: issue.path[0] },
-      { status: 400 }
-    );
-  }
+  const json = await readJson(req);
+  if (!json.ok) return json.response;
+  const parsed = maintenancePatchSchema.safeParse(json.body);
+  if (!parsed.success) return validationError(parsed.error);
 
   const actorId = user.userId;
   const isManager = MANAGER_ROLES.includes(user.role);
