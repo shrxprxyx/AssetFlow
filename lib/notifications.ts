@@ -141,6 +141,13 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
       add([opts.actorId], "Your resource booking is confirmed.");
       break;
 
+    // Only matters when someone else (a manager) cancelled it.
+    case "booking_cancelled": {
+      const booking = rid ? await prisma.resourceBooking.findUnique({ where: { id: rid } }) : null;
+      if (booking) add([booking.bookerId], "Your resource booking was cancelled.", true);
+      break;
+    }
+
     case "audit_finding_recorded": {
       if (changes.status && changes.status !== "VERIFIED") {
         add(await staffIds(opts.actorId), "An audit discrepancy was flagged.");
