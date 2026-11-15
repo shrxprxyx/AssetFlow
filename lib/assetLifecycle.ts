@@ -1,0 +1,180 @@
+import { prisma, Prisma } from "./prisma";
+
+type HttpError = { status: number; body: Record<string, unknown> };
+const fail = (status: number, error: string, message: string, field?: string): HttpError => ({
+  status,
+  body: field ? { error, message, field } : { error, message },
+});
+
+async function lockAsset(tx: Prisma.TransactionClient, assetId: number) {
+  await tx.$queryRaw`SELECT id FROM "Asset" WHERE id = ${assetId} FOR UPDATE`;
+}
+
+/* =====================================================
+   Editing an asset's details
+===================================================== */
+
+export type AssetPatch = {
+  name?: string;
+  categoryId?: number;
+  serialNumber?: string | null;
+  acquisitionDate?: Date | null;
+  acquisitionCost?: number | null;
+  condition?: "GOOD" | "FAIR" | "POOR";
+  location?: string | null;
+  isBookable?: boolean;
+  photoUrl?: string | null;
+  notes?: string | null;
+};
+
+export async function updateAsset(assetId: number, patch: AssetPatch) {
+  try {
+    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await lockAsset(tx, assetId);
+
+      const asset = await tx.asset.findUnique({ where: { id: assetId } });
+      if (!asset) throw fail(404, "not_found", "Asset not found");
+      if (asset.status === "DISPOSED") {
+        throw fail(409, "asset_disposed", "A disposed asset can't be edited");
+      }
+
+      if (patch.categoryId !== undefined) {
+        const category = await tx.assetCategory.findUnique({ where: { id: patch.categoryId } });
+        if (!category) throw fail(400, "validation_error", "Category not found", "categoryId");
+      }
+
+      // Don't pull a room out of service while people have it booked.
+      if (patch.isBookable === false && asset.isBookable) {
+        const upcoming = await tx.resourceBooking.count({
+          where: { resourceId: assetId, status: "UPCOMING", endTime: { gt: new Date() } },
+        });
+        if (upcoming > 0) {
+          throw fail(
+            409,
+            "has_upcoming_bookings",
+            `Cancel the ${upcoming} upcoming booking(s) before making this asset non-bookable`,
+            "isBookable"
+          );
+        }
+      }
+
+      return tx.asset.update({
+        where: { id: assetId },
+        data: patch,
+        include: { category: { select: { name: true } } },
+      });
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      throw fail(409, "serial_taken", "An asset with this serial number already exists", "serialNumber");
+    }
+    throw err;
+  }
+}
+
+/* =====================================================
+   Lifecycle: lost / found / retired / disposed
+
+   Statuses the system manages itself (ALLOCATED, UNDER_MAINTENANCE)
+   can't be set by hand. Only these moves are allowed:
+
+     AVAILABLE / RESERVED / ALLOCATED / UNDER_MAINTENANCE -> LOST
+     AVAILABLE -> RETIRED
+     LOST      -> AVAILABLE   (found again)
+     RETIRED   -> DISPOSED
+===================================================== */
+
+export type LifecycleTarget = "AVAILABLE" | "LOST" | "RETIRED" | "DISPOSED";
+
+const ALLOWED_MOVES: Record<string, string[]> = {
+  AVAILABLE: ["LOST", "RETIRED"],
+  RESERVED: ["LOST"],
+  ALLOCATED: ["LOST"],
+  UNDER_MAINTENANCE: ["LOST"],
+  LOST: ["AVAILABLE"],
+  RETIRED: ["DISPOSED"],
+  DISPOSED: [],
+};
+
+const DEFAULT_REASON: Record<LifecycleTarget, string> = {
+  LOST: "Marked as lost",
+  RETIRED: "Retired from service",
+  DISPOSED: "Disposed",
+  AVAILABLE: "Found and returned to service",
+};
+
+export async function changeAssetStatus(
+  assetId: number,
+  target: LifecycleTarget,
+  actorId: number,
+  reason?: string
+) {
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await lockAsset(tx, assetId);
+
+    const asset = await tx.asset.findUnique({ where: { id: assetId } });
+    if (!asset) throw fail(404, "not_found", "Asset not found");
+
+    const allowed = ALLOWED_MOVES[asset.status] ?? [];
+    if (!allowed.includes(target)) {
+      throw fail(
+        409,
+        "invalid_transition",
+        `An asset that is ${asset.status.toLowerCase().replace("_", " ")} can't be moved to ${target.toLowerCase()}`
+      );
+    }
+
+    // Someone may still be holding it.
+    const activeAllocation = await tx.allocation.findFirst({
+      where: { assetId, status: "ACTIVE" },
+      select: { id: true },
+    });
+
+    if (target === "LOST" && activeAllocation) {
+      // A lost asset can't stay allocated: close the allocation.
+      await tx.allocation.updateMany({
+        where: { assetId, status: "ACTIVE" },
+        data: { status: "RETURNED", returnedDate: new Date(), returnNotes: "Asset reported lost" },
+      });
+    }
+
+    // Anything that takes the asset out of service also cancels its upcoming bookings.
+    let cancelledBookingIds: number[] = [];
+    if (target === "LOST" || target === "RETIRED") {
+      const upcoming = await tx.resourceBooking.findMany({
+        where: { resourceId: assetId, status: "UPCOMING", endTime: { gt: new Date() } },
+        select: { id: true },
+      });
+      cancelledBookingIds = upcoming.map((b: { id: number }) => b.id);
+      if (cancelledBookingIds.length > 0) {
+        await tx.resourceBooking.updateMany({
+          where: { id: { in: cancelledBookingIds } },
+          data: { status: "CANCELLED" },
+        });
+      }
+    }
+
+    // Found again: back to ALLOCATED if someone still holds it
+    // (the audit "close" step can leave an allocation open on a lost asset).
+    const nextStatus =
+      target === "AVAILABLE" && activeAllocation ? "ALLOCATED" : target;
+
+    const updated = await tx.asset.update({
+      where: { id: assetId },
+      data: { status: nextStatus },
+      include: { category: { select: { name: true } } },
+    });
+
+    await tx.assetHistory.create({
+      data: {
+        assetId,
+        fromStatus: asset.status,
+        toStatus: nextStatus,
+        actorId,
+        reason: reason?.trim() ? reason.trim() : DEFAULT_REASON[target],
+      },
+    });
+
+    return { asset: updated, from: asset.status, cancelledBookingIds };
+  });
+}
