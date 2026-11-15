@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 type Resource = { id: number; assetTag: string; name: string; location: string | null };
 type Booking = {
   id: number;
+  bookerId: number;
   startTime: string;
   endTime: string;
   purpose: string | null;
@@ -15,18 +17,28 @@ type Booking = {
 
 const HOURS = Array.from({ length: 9 }, (_, i) => 9 + i); // 9:00 .. 17:00
 
+// Local calendar date (toISOString() would give the UTC date, which is
+// yesterday/tomorrow for part of the day in timezones like IST).
 function toLocalDateInput(d: Date) {
-  return d.toISOString().slice(0, 10);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 export default function BookingPage() {
+  const { data: session } = useSession();
+  const userId = Number(session?.user?.id);
+  const isManager = session?.user?.role === "ADMIN" || session?.user?.role === "ASSET_MANAGER";
+
   const [resources, setResources] = useState<Resource[]>([]);
   const [resourceId, setResourceId] = useState<number | null>(null);
   const [date, setDate] = useState(toLocalDateInput(new Date()));
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [form, setForm] = useState({ start: "10:00", end: "11:00", purpose: "" });
 
   useEffect(() => {
@@ -57,19 +69,37 @@ export default function BookingPage() {
     });
   }
 
+  // A booking can span several rows; show its Cancel button on the first visible one.
+  function firstVisibleHour(b: Booking) {
+    return Math.max(new Date(b.startTime).getHours(), HOURS[0]);
+  }
+
+  // You can cancel your own bookings (managers can cancel anyone's), as long as they haven't ended.
+  function canCancel(b: Booking) {
+    return (b.bookerId === userId || isManager) && new Date(b.endTime) > new Date();
+  }
+
   async function submitBooking() {
     setError(null);
+    setNotice(null);
+
+    const start = new Date(`${date}T${form.start}:00`);
+    const end = new Date(`${date}T${form.end}:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      setError("Pick a valid date and start/end time.");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const startTime = `${date}T${form.start}:00`;
-      const endTime = `${date}T${form.end}:00`;
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           resourceId,
-          startTime,
-          endTime,
+          // Sent as exact instants, so the server doesn't have to guess our timezone.
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
           purpose: form.purpose || undefined,
         }),
       });
@@ -78,10 +108,30 @@ export default function BookingPage() {
         setError(data.message ?? "Booking conflict — slot is unavailable.");
         return;
       }
+      setNotice("Booking confirmed.");
       setForm({ start: "10:00", end: "11:00", purpose: "" });
       refetch();
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function cancelBooking(id: number) {
+    setError(null);
+    setNotice(null);
+    setCancellingId(id);
+    try {
+      const res = await fetch(`/api/bookings/${id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.message ?? "Could not cancel the booking.");
+        return;
+      }
+      setNotice("Booking cancelled.");
+      setConfirmId(null);
+      refetch();
+    } finally {
+      setCancellingId(null);
     }
   }
 
@@ -122,6 +172,7 @@ export default function BookingPage() {
         )}
         {!loading && HOURS.map((hour) => {
           const b = bookingForHour(hour);
+          const showCancel = !!b && hour === firstVisibleHour(b) && canCancel(b);
           return (
             <div
               key={hour}
@@ -140,6 +191,46 @@ export default function BookingPage() {
               ) : (
                 <span className="text-sm text-muted-foreground">Open</span>
               )}
+
+              {showCancel && b && (
+                <div className="ml-auto flex shrink-0 gap-1.5">
+                  {confirmId === b.id ? (
+                    <>
+                      <Button
+                        size="xs"
+                        variant="destructive"
+                        className="cursor-pointer"
+                        disabled={cancellingId === b.id}
+                        onClick={() => cancelBooking(b.id)}
+                      >
+                        {cancellingId === b.id ? "Cancelling…" : "Confirm cancel"}
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        className="cursor-pointer"
+                        disabled={cancellingId === b.id}
+                        onClick={() => setConfirmId(null)}
+                      >
+                        Keep
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      className="cursor-pointer"
+                      onClick={() => {
+                        setError(null);
+                        setNotice(null);
+                        setConfirmId(b.id);
+                      }}
+                    >
+                      Cancel booking
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -153,6 +244,11 @@ export default function BookingPage() {
       {error && (
         <div className="rounded-lg border border-dashed border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
           {error}
+        </div>
+      )}
+      {notice && (
+        <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
+          {notice}
         </div>
       )}
 

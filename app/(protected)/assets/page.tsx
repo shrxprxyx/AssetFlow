@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   ColumnDef,
@@ -23,6 +23,15 @@ import { cn } from "@/lib/utils";
 
 type Category = { id: number; name: string; description: string | null };
 
+type AssetStatus =
+  | "AVAILABLE"
+  | "ALLOCATED"
+  | "RESERVED"
+  | "UNDER_MAINTENANCE"
+  | "LOST"
+  | "RETIRED"
+  | "DISPOSED";
+
 type Asset = {
   id: number;
   assetTag: string;
@@ -30,19 +39,38 @@ type Asset = {
   categoryId: number;
   category?: { name: string };
   serialNumber: string | null;
+  acquisitionDate: string | null;
+  acquisitionCost: number | null;
   condition: "GOOD" | "FAIR" | "POOR";
   location: string | null;
   isBookable: boolean;
-  status:
-    | "AVAILABLE"
-    | "ALLOCATED"
-    | "RESERVED"
-    | "UNDER_MAINTENANCE"
-    | "LOST"
-    | "RETIRED"
-    | "DISPOSED";
+  status: AssetStatus;
   notes: string | null;
   currentHolder?: { id: number; firstName: string; lastName: string } | null;
+};
+
+type FormState = {
+  name: string;
+  categoryId: string;
+  serialNumber: string;
+  acquisitionDate: string;
+  acquisitionCost: string;
+  condition: string;
+  location: string;
+  isBookable: boolean;
+  notes: string;
+};
+
+const EMPTY_FORM: FormState = {
+  name: "",
+  categoryId: "",
+  serialNumber: "",
+  acquisitionDate: "",
+  acquisitionCost: "",
+  condition: "GOOD",
+  location: "",
+  isBookable: false,
+  notes: "",
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -64,6 +92,37 @@ const STATUS_OPTIONS = [
   "RETIRED",
   "DISPOSED",
 ] as const;
+
+// ── Lifecycle actions (mirror the server's allowed moves) ──
+
+type Target = "LOST" | "RETIRED" | "DISPOSED" | "AVAILABLE";
+type LifecycleAction = { target: Target; label: string; danger?: boolean };
+
+const MARK_LOST: LifecycleAction = { target: "LOST", label: "Mark lost", danger: true };
+
+const LIFECYCLE_ACTIONS: Record<AssetStatus, LifecycleAction[]> = {
+  AVAILABLE: [{ target: "RETIRED", label: "Retire" }, MARK_LOST],
+  ALLOCATED: [MARK_LOST],
+  RESERVED: [MARK_LOST],
+  UNDER_MAINTENANCE: [MARK_LOST],
+  LOST: [{ target: "AVAILABLE", label: "Mark found" }],
+  RETIRED: [{ target: "DISPOSED", label: "Dispose", danger: true }],
+  DISPOSED: [],
+};
+
+const CONFIRM_COPY: Record<Target, string> = {
+  LOST: "Any active allocation will be closed and upcoming bookings cancelled.",
+  RETIRED: "It will no longer be allocatable or bookable, and upcoming bookings will be cancelled.",
+  DISPOSED: "This is final — a disposed asset can't be changed or edited again.",
+  AVAILABLE: "It will go back into service.",
+};
+
+const TARGET_VERB: Record<Target, string> = {
+  LOST: "Mark as lost",
+  RETIRED: "Retire",
+  DISPOSED: "Dispose of",
+  AVAILABLE: "Mark as found:",
+};
 
 function Pill({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
@@ -93,16 +152,140 @@ function SortableHeader({
 const inputClass =
   "h-10 px-3 rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-3 focus:ring-ring/50";
 
+// The same fields are used to register a new asset and to edit an existing one.
+function AssetFormFields({
+  form,
+  setForm,
+  categories,
+}: {
+  form: FormState;
+  setForm: (f: FormState) => void;
+  categories: Category[];
+}) {
+  return (
+    <div className="grid sm:grid-cols-3 gap-3">
+      <input
+        placeholder="Asset name"
+        value={form.name}
+        onChange={(e) => setForm({ ...form, name: e.target.value })}
+        className={inputClass}
+      />
+      <select
+        value={form.categoryId}
+        onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+        className={inputClass}
+      >
+        <option value="">Select category</option>
+        {categories.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+      <input
+        placeholder="Serial number (optional)"
+        value={form.serialNumber}
+        onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
+        className={inputClass}
+      />
+      <input
+        type="date"
+        placeholder="Acquisition date"
+        value={form.acquisitionDate}
+        onChange={(e) => setForm({ ...form, acquisitionDate: e.target.value })}
+        className={inputClass}
+      />
+      <input
+        type="number"
+        min="0"
+        step="0.01"
+        placeholder="Acquisition cost (optional)"
+        value={form.acquisitionCost}
+        onChange={(e) => setForm({ ...form, acquisitionCost: e.target.value })}
+        className={inputClass}
+      />
+      <select
+        value={form.condition}
+        onChange={(e) => setForm({ ...form, condition: e.target.value })}
+        className={inputClass}
+      >
+        <option value="GOOD">Good</option>
+        <option value="FAIR">Fair</option>
+        <option value="POOR">Poor</option>
+      </select>
+      <input
+        placeholder="Location (optional)"
+        value={form.location}
+        onChange={(e) => setForm({ ...form, location: e.target.value })}
+        className={inputClass}
+      />
+      <input
+        placeholder="Notes (optional)"
+        value={form.notes}
+        onChange={(e) => setForm({ ...form, notes: e.target.value })}
+        className={cn(inputClass, "sm:col-span-2")}
+      />
+      <label className="flex items-center gap-2 text-sm text-foreground px-1">
+        <input
+          type="checkbox"
+          checked={form.isBookable}
+          onChange={(e) => setForm({ ...form, isBookable: e.target.checked })}
+          className="h-4 w-4 rounded border-border"
+        />
+        Shared / bookable resource
+      </label>
+    </div>
+  );
+}
+
+// Works out which fields the person actually changed, so the edit request only
+// contains those (and can't accidentally overwrite anything else).
+function buildPatch(orig: Asset, f: FormState): { patch: Record<string, unknown>; error?: string } {
+  const patch: Record<string, unknown> = {};
+
+  const name = f.name.trim();
+  if (!name) return { patch, error: "Asset name is required" };
+  if (name !== orig.name) patch.name = name;
+
+  const categoryId = Number(f.categoryId);
+  if (!categoryId) return { patch, error: "Category is required" };
+  if (categoryId !== orig.categoryId) patch.categoryId = categoryId;
+
+  const setText = (key: string, value: string, original: string | null) => {
+    const next = value.trim();
+    if (next !== (original ?? "")) patch[key] = next === "" ? null : next;
+  };
+  setText("serialNumber", f.serialNumber, orig.serialNumber);
+  setText("location", f.location, orig.location);
+  setText("notes", f.notes, orig.notes);
+
+  if (f.acquisitionDate !== (orig.acquisitionDate ?? "").slice(0, 10)) {
+    patch.acquisitionDate = f.acquisitionDate || null;
+  }
+
+  const cost = f.acquisitionCost === "" ? null : Number(f.acquisitionCost);
+  if (cost !== null && (Number.isNaN(cost) || cost < 0)) {
+    return { patch, error: "Acquisition cost must be a positive number" };
+  }
+  if (cost !== (orig.acquisitionCost ?? null)) patch.acquisitionCost = cost;
+
+  if (f.condition !== orig.condition) patch.condition = f.condition;
+  if (f.isBookable !== orig.isBookable) patch.isBookable = f.isBookable;
+
+  return { patch };
+}
+
 // ── Page ───────────────────────────────────────────────
 
 export default function AssetsPage() {
   const { data: session } = useSession();
-  const canRegister = session?.user?.role === "ADMIN" || session?.user?.role === "ASSET_MANAGER";
+  const canManage = session?.user?.role === "ADMIN" || session?.user?.role === "ASSET_MANAGER";
 
   const [assets, setAssets] = useState<Asset[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   // Server-side filters
   const [categoryId, setCategoryId] = useState("");
@@ -112,19 +295,20 @@ export default function AssetsPage() {
   // all three after the server-side category/status filters come back.
   const [search, setSearch] = useState("");
 
+  // Register
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({
-    name: "",
-    categoryId: "",
-    serialNumber: "",
-    acquisitionDate: "",
-    acquisitionCost: "",
-    condition: "GOOD",
-    location: "",
-    isBookable: false,
-    notes: "",
-  });
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+
+  // Edit
+  const [editing, setEditing] = useState<Asset | null>(null);
+  const [editForm, setEditForm] = useState<FormState>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+
+  // Lost / found / retire / dispose
+  const [pending, setPending] = useState<{ asset: Asset; target: Target } | null>(null);
+  const [reason, setReason] = useState("");
+  const [acting, setActing] = useState(false);
 
   // TanStack Table sort state
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -156,6 +340,34 @@ export default function AssetsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryId, status]);
 
+  const startEdit = useCallback((a: Asset) => {
+    setShowForm(false);
+    setPending(null);
+    setError("");
+    setNotice("");
+    setEditForm({
+      name: a.name,
+      categoryId: String(a.categoryId),
+      serialNumber: a.serialNumber ?? "",
+      acquisitionDate: (a.acquisitionDate ?? "").slice(0, 10),
+      acquisitionCost: a.acquisitionCost == null ? "" : String(a.acquisitionCost),
+      condition: a.condition,
+      location: a.location ?? "",
+      isBookable: a.isBookable,
+      notes: a.notes ?? "",
+    });
+    setEditing(a);
+  }, []);
+
+  const startStatusChange = useCallback((asset: Asset, target: Target) => {
+    setShowForm(false);
+    setEditing(null);
+    setError("");
+    setNotice("");
+    setReason("");
+    setPending({ asset, target });
+  }, []);
+
   const visibleAssets = useMemo(() => {
     if (!search.trim()) return assets;
     const q = search.trim().toLowerCase();
@@ -168,8 +380,8 @@ export default function AssetsPage() {
     );
   }, [assets, search]);
 
-  const columns = useMemo<ColumnDef<Asset>[]>(
-    () => [
+  const columns = useMemo<ColumnDef<Asset>[]>(() => {
+    const base: ColumnDef<Asset>[] = [
       {
         accessorKey: "assetTag",
         header: ({ column }) => <SortableHeader label="Tag" column={column} />,
@@ -233,9 +445,42 @@ export default function AssetsPage() {
           <span className="text-muted-foreground">{row.original.condition}</span>
         ),
       },
-    ],
-    []
-  );
+    ];
+
+    if (!canManage) return base;
+
+    return [
+      ...base,
+      {
+        id: "actions",
+        header: "Actions",
+        enableSorting: false,
+        cell: ({ row }) => {
+          const a = row.original;
+          // A disposed asset is final: nothing can be done to it any more.
+          if (a.status === "DISPOSED") return <span className="text-muted-foreground">—</span>;
+          return (
+            <div className="flex flex-wrap gap-1.5">
+              <Button size="xs" variant="outline" className="cursor-pointer" onClick={() => startEdit(a)}>
+                Edit
+              </Button>
+              {LIFECYCLE_ACTIONS[a.status].map((act) => (
+                <Button
+                  key={act.target}
+                  size="xs"
+                  variant={act.danger ? "destructive" : "outline"}
+                  className="cursor-pointer"
+                  onClick={() => startStatusChange(a, act.target)}
+                >
+                  {act.label}
+                </Button>
+              ))}
+            </div>
+          );
+        },
+      },
+    ];
+  }, [canManage, startEdit, startStatusChange]);
 
   const table = useReactTable({
     data: visibleAssets,
@@ -248,6 +493,7 @@ export default function AssetsPage() {
 
   async function registerAsset() {
     setError("");
+    setNotice("");
     if (!form.name.trim()) {
       setError("Asset name is required");
       return;
@@ -274,24 +520,74 @@ export default function AssetsPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to register asset");
-      setForm({
-        name: "",
-        categoryId: "",
-        serialNumber: "",
-        acquisitionDate: "",
-        acquisitionCost: "",
-        condition: "GOOD",
-        location: "",
-        isBookable: false,
-        notes: "",
-      });
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to register asset");
+      setForm(EMPTY_FORM);
       setShowForm(false);
+      setNotice(`Registered ${data.assetTag}.`);
       refetch();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to register asset");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    setError("");
+    const { patch, error: problem } = buildPatch(editing, editForm);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    if (Object.keys(patch).length === 0) {
+      setError("No changes to save");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/assets/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to save changes");
+      setNotice(`Saved changes to ${editing.assetTag}.`);
+      setEditing(null);
+      refetch();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save changes");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmStatusChange() {
+    if (!pending) return;
+    setError("");
+    setActing(true);
+    try {
+      const res = await fetch(`/api/assets/${pending.asset.id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: pending.target, reason: reason.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to change status");
+
+      const cancelled: number = data.cancelledBookings ?? 0;
+      setNotice(
+        `${pending.asset.assetTag} is now ${String(data.asset.status).toLowerCase().replace("_", " ")}.` +
+          (cancelled > 0 ? ` ${cancelled} upcoming booking(s) were cancelled.` : "")
+      );
+      setPending(null);
+      setReason("");
+      refetch();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to change status");
+    } finally {
+      setActing(false);
     }
   }
 
@@ -307,6 +603,11 @@ export default function AssetsPage() {
       {error && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
           {error}
+        </div>
+      )}
+      {notice && (
+        <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-600 dark:text-emerald-400">
+          {notice}
         </div>
       )}
 
@@ -337,90 +638,93 @@ export default function AssetsPage() {
                 </option>
               ))}
             </select>
-            {canRegister && (
-              <Button className="sm:w-auto w-full cursor-pointer" onClick={() => setShowForm((s) => !s)}>
+            {canManage && (
+              <Button
+                className="sm:w-auto w-full cursor-pointer"
+                onClick={() => {
+                  setEditing(null);
+                  setPending(null);
+                  setNotice("");
+                  setShowForm((s) => !s);
+                }}
+              >
                 {showForm ? "Cancel" : "Register Asset"}
               </Button>
             )}
           </div>
 
-          {showForm && canRegister && (
+          {showForm && canManage && (
             <div className="rounded-lg border border-border p-4 space-y-3">
-              <div className="grid sm:grid-cols-3 gap-3">
-                <input
-                  placeholder="Asset name"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className={inputClass}
-                />
-                <select
-                  value={form.categoryId}
-                  onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-                  className={inputClass}
-                >
-                  <option value="">Select category</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  placeholder="Serial number (optional)"
-                  value={form.serialNumber}
-                  onChange={(e) => setForm({ ...form, serialNumber: e.target.value })}
-                  className={inputClass}
-                />
-                <input
-                  type="date"
-                  placeholder="Acquisition date"
-                  value={form.acquisitionDate}
-                  onChange={(e) => setForm({ ...form, acquisitionDate: e.target.value })}
-                  className={inputClass}
-                />
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="Acquisition cost (optional)"
-                  value={form.acquisitionCost}
-                  onChange={(e) => setForm({ ...form, acquisitionCost: e.target.value })}
-                  className={inputClass}
-                />
-                <select
-                  value={form.condition}
-                  onChange={(e) => setForm({ ...form, condition: e.target.value })}
-                  className={inputClass}
-                >
-                  <option value="GOOD">Good</option>
-                  <option value="FAIR">Fair</option>
-                  <option value="POOR">Poor</option>
-                </select>
-                <input
-                  placeholder="Location (optional)"
-                  value={form.location}
-                  onChange={(e) => setForm({ ...form, location: e.target.value })}
-                  className={inputClass}
-                />
-                <input
-                  placeholder="Notes (optional)"
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  className={cn(inputClass, "sm:col-span-2")}
-                />
-                <label className="flex items-center gap-2 text-sm text-foreground px-1">
-                  <input
-                    type="checkbox"
-                    checked={form.isBookable}
-                    onChange={(e) => setForm({ ...form, isBookable: e.target.checked })}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  Shared / bookable resource
-                </label>
-              </div>
+              <AssetFormFields form={form} setForm={setForm} categories={categories} />
               <Button onClick={registerAsset} disabled={submitting}>
                 {submitting ? "Registering..." : "Register Asset"}
               </Button>
+            </div>
+          )}
+
+          {editing && canManage && (
+            <div className="rounded-lg border border-primary/40 p-4 space-y-3">
+              <p className="text-sm font-medium text-foreground">
+                Editing <span className="font-mono">{editing.assetTag}</span>
+              </p>
+              <AssetFormFields form={editForm} setForm={setEditForm} categories={categories} />
+              <div className="flex gap-2">
+                <Button onClick={saveEdit} disabled={saving} className="cursor-pointer">
+                  {saving ? "Saving..." : "Save changes"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setEditing(null)}
+                  disabled={saving}
+                  className="cursor-pointer"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {pending && canManage && (
+            <div
+              className={cn(
+                "rounded-lg border p-4 space-y-3",
+                pending.target === "AVAILABLE" || pending.target === "RETIRED"
+                  ? "border-border"
+                  : "border-destructive/40 bg-destructive/5"
+              )}
+            >
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  {TARGET_VERB[pending.target]}{" "}
+                  <span className="font-mono">{pending.asset.assetTag}</span> — {pending.asset.name}?
+                </p>
+                <p className="text-sm text-muted-foreground">{CONFIRM_COPY[pending.target]}</p>
+              </div>
+              <input
+                placeholder="Reason (optional)"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                maxLength={500}
+                className={cn(inputClass, "w-full")}
+              />
+              <div className="flex gap-2">
+                <Button
+                  variant={pending.target === "AVAILABLE" || pending.target === "RETIRED" ? "default" : "destructive"}
+                  onClick={confirmStatusChange}
+                  disabled={acting}
+                  className="cursor-pointer"
+                >
+                  {acting ? "Working..." : "Confirm"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setPending(null)}
+                  disabled={acting}
+                  className="cursor-pointer"
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
@@ -436,7 +740,7 @@ export default function AssetsPage() {
               title={assets.length === 0 ? "No assets registered yet" : "No assets match your search"}
               description={
                 assets.length === 0
-                  ? canRegister
+                  ? canManage
                     ? "Register your first asset above."
                     : "Check back once an Asset Manager has registered some assets."
                   : "Try a different search term or clear the filters."
