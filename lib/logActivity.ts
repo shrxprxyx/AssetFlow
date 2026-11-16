@@ -23,13 +23,22 @@ export async function logActivity(action: string, options: LogActivityOptions = 
 
   // Working out who to notify, and writing those notifications, is handed to the
   // worker process so the request that triggered it doesn't wait for it.
-  // If it can't be queued (inline mode, or Redis is down) we do it here instead,
-  // so notifications are delayed at worst, never lost.
-  // Notifications must never break the action that triggered them.
+  let queued = false;
   try {
-    const queued = await enqueueNotification(action, options);
-    if (!queued) await notifyForActivity(action, options);
+    queued = await enqueueNotification(action, options);
   } catch (err) {
-    console.error("notification failed for", action, err);
+    // The queue itself misbehaved: treat it as "not queued" and do the work here.
+    console.error("could not queue notification for", action, err);
+  }
+
+  // If it wasn't queued (inline mode, Redis down, or the queue failed) we create
+  // the notifications ourselves, so they are delayed at worst, never lost.
+  // Notifications must never break the action that triggered them.
+  if (!queued) {
+    try {
+      await notifyForActivity(action, options);
+    } catch (err) {
+      console.error("notification failed for", action, err);
+    }
   }
 }
