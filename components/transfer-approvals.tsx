@@ -196,7 +196,7 @@ export function TransferApprovals({
                 onChange={(e) => setReason(e.target.value)}
                 className={inputClass}
               />
-              <Button onClick={submitRequest} disabled={submitting}>
+              <Button className="cursor-pointer" onClick={submitRequest} disabled={submitting}>
                 {submitting ? "Submitting..." : "Request transfer"}
               </Button>
             </div>
@@ -252,10 +252,11 @@ export function TransferApprovals({
                   </span>
                   {r.canDecide && (
                     <>
-                      <Button size="sm" disabled={busyId === r.id} onClick={() => act(r.id, "approve")}>
+                      <Button className="cursor-pointer" size="sm" disabled={busyId === r.id} onClick={() => act(r.id, "approve")}>
                         Approve
                       </Button>
                       <Button
+                        className="cursor-pointer"
                         size="sm"
                         variant="outline"
                         disabled={busyId === r.id}
@@ -267,6 +268,7 @@ export function TransferApprovals({
                   )}
                   {r.canCancel && (
                     <Button
+                      className="cursor-pointer"
                       size="sm"
                       variant="outline"
                       disabled={busyId === r.id}

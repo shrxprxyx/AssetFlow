@@ -321,7 +321,7 @@ export default function AllocationsPage() {
                 </p>
               )}
 
-              <Button onClick={allocate} disabled={allocating}>
+              <Button className="cursor-pointer" onClick={allocate} disabled={allocating}>
                 {allocating ? "Allocating..." : "Allocate Asset"}
               </Button>
 
@@ -355,7 +355,7 @@ export default function AllocationsPage() {
                       className={inputClass}
                     />
                   </div>
-                  <Button variant="destructive" onClick={requestTransfer} disabled={transferring}>
+                  <Button variant="destructive" className="cursor-pointer" onClick={requestTransfer} disabled={transferring}>
                     {transferring ? "Transferring..." : "Request Transfer"}
                   </Button>
                 </div>
@@ -420,6 +420,7 @@ export default function AllocationsPage() {
                               </td>
                               <td className="px-4 py-3 text-right">
                                 <Button
+                                  className="cursor-pointer"
                                   variant="outline"
                                   size="sm"
                                   onClick={() => setReturningId(returningId === a.id ? null : a.id)}
@@ -453,6 +454,7 @@ export default function AllocationsPage() {
                                     />
                                     <Button
                                       size="sm"
+                                      className="cursor-pointer"
                                       disabled={submittingReturn === a.id}
                                       onClick={() => markReturned(a.id)}
                                     >

@@ -55,10 +55,10 @@ export function NotificationsBell() {
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <button className="relative inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-muted">
+          <button className="relative cursor-pointer inline-flex h-9 w-9 items-center justify-center rounded-md hover:bg-muted">
             <Bell className="h-5 w-5" />
             {unread > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-semibold flex items-center justify-center">
+              <span className="absolute -top-0.5 -right-0.5 min-w-4.5 h-4.5 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-semibold flex items-center justify-center">
                 {unread > 99 ? "99+" : unread}
               </span>
             )}
@@ -69,7 +69,7 @@ export function NotificationsBell() {
         <div className="flex items-center justify-between px-3 py-2 border-b">
           <span className="text-sm font-semibold">Notifications</span>
           {unread > 0 && (
-            <Button variant="ghost" size="sm" onClick={markAllRead}>
+            <Button cursor-pointer variant="ghost" size="sm" onClick={markAllRead}>
               Mark all read
             </Button>
           )}

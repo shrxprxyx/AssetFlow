@@ -220,6 +220,7 @@ export default function MaintenancePage() {
                       {isManager && col.stage === "PENDING" && (
                         <div className="flex gap-2">
                           <Button
+                            className="cursor-pointer"
                             size="sm"
                             disabled={actingOn === r.id}
                             onClick={() => patchRequest(r.id, { status: "APPROVED" })}
@@ -227,6 +228,7 @@ export default function MaintenancePage() {
                             Approve
                           </Button>
                           <Button
+                            className="cursor-pointer"
                             size="sm"
                             variant="destructive"
                             disabled={actingOn === r.id}
@@ -249,6 +251,7 @@ export default function MaintenancePage() {
                             className="h-8 flex-1 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
                           />
                           <Button
+                            className="cursor-pointer"
                             size="sm"
                             disabled={actingOn === r.id || !technicianInputs[r.id]}
                             onClick={() =>
@@ -262,6 +265,7 @@ export default function MaintenancePage() {
 
                       {isManager && col.stage === "TECHNICIAN_ASSIGNED" && (
                         <Button
+                          className="cursor-pointer"
                           size="sm"
                           disabled={actingOn === r.id}
                           onClick={() => patchRequest(r.id, { status: "IN_PROGRESS" })}
@@ -282,6 +286,7 @@ export default function MaintenancePage() {
                             rows={2}
                           />
                           <Button
+                            className="cursor-pointer"
                             size="sm"
                             disabled={actingOn === r.id}
                             onClick={() =>

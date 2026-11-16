@@ -98,7 +98,7 @@ export default function AuditsPage() {
           </p>
         </div>
         {isAdmin && (
-          <Button onClick={() => setShowForm((v) => !v)}>
+          <Button className="cursor-pointer" onClick={() => setShowForm((v) => !v)}>
             <Plus data-icon="inline-start" />
             New Audit Cycle
           </Button>
@@ -173,10 +173,11 @@ export default function AuditsPage() {
           )}
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setShowForm(false)}>
+            <Button className="cursor-pointer" variant="outline" onClick={() => setShowForm(false)}>
               Cancel
             </Button>
             <Button
+              className="cursor-pointer"
               onClick={submitCycle}
               disabled={submitting || !form.name || (form.scopeType === "DEPARTMENT" && !form.scopeId)}
             >

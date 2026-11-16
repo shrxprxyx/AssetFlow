@@ -151,7 +151,7 @@ export default function AuditCycleDetailPage() {
           </p>
         </div>
         {isAdmin && !isClosed && (
-          <Button variant="destructive" onClick={closeCycle} disabled={closing}>
+          <Button className="cursor-pointer" variant="destructive" onClick={closeCycle} disabled={closing}>
             <Lock data-icon="inline-start" />
             {closing ? "Closing…" : "Close Audit Cycle"}
           </Button>
@@ -213,7 +213,7 @@ export default function AuditCycleDetailPage() {
                           disabled={isClosed || savingAssetId === row.asset.id}
                           onClick={() => recordFinding(row.asset.id, value)}
                           className={cn(
-                            "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                            "inline-flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                             active && value === "VERIFIED" && "border-primary/40 bg-primary/10 text-primary",
                             active && value === "MISSING" && "border-destructive/40 bg-destructive/10 text-destructive",
                             active && value === "DAMAGED" && "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400",
