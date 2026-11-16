@@ -23,6 +23,8 @@ export default defineConfig({
     env: {
       DATABASE_URL: TEST_DATABASE_URL,
       DIRECT_URL: TEST_DATABASE_URL,
+      // Notifications are produced inline in tests, so no Redis or worker is needed.
+      QUEUE_MODE: "inline",
     },
   },
 });

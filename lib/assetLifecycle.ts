@@ -46,7 +46,7 @@ export async function updateAsset(assetId: number, patch: AssetPatch) {
       // Don't pull a room out of service while people have it booked.
       if (patch.isBookable === false && asset.isBookable) {
         const upcoming = await tx.resourceBooking.count({
-          where: { resourceId: assetId, status: "UPCOMING", endTime: { gt: new Date() } },
+          where: { resourceId: assetId, status: { in: ["UPCOMING", "ONGOING"] }, endTime: { gt: new Date() } },
         });
         if (upcoming > 0) {
           throw fail(
@@ -142,7 +142,7 @@ export async function changeAssetStatus(
     let cancelledBookingIds: number[] = [];
     if (target === "LOST" || target === "RETIRED") {
       const upcoming = await tx.resourceBooking.findMany({
-        where: { resourceId: assetId, status: "UPCOMING", endTime: { gt: new Date() } },
+        where: { resourceId: assetId, status: { in: ["UPCOMING", "ONGOING"] }, endTime: { gt: new Date() } },
         select: { id: true },
       });
       cancelledBookingIds = upcoming.map((b: { id: number }) => b.id);

@@ -28,7 +28,8 @@ async function assetLabel(assetId: number | null | undefined): Promise<string> {
 
 /**
  * Turns an activity event into notifications for the people it affects.
- * Called from logActivity(); never throws to the caller.
+ * Called from logActivity() (inline) or from the background worker; never
+ * throws to the caller in the inline case.
  */
 export async function notifyForActivity(action: string, opts: ActivityOptions) {
   const recipients: Recipient[] = [];
@@ -140,6 +141,39 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
     case "booking_confirmed":
       add([opts.actorId], "Your resource booking is confirmed.");
       break;
+
+    // Sent by the scheduled booking job, shortly before a booking starts.
+    case "booking_reminder": {
+      const booking = rid
+        ? await prisma.resourceBooking.findUnique({
+            where: { id: rid },
+            include: { resource: { select: { name: true } } },
+          })
+        : null;
+      if (booking) add([booking.bookerId], `Your booking of ${booking.resource.name} starts in about 15 minutes.`);
+      break;
+    }
+
+    // Sent by the scheduled overdue job: the holder, and the people who chase it up.
+    case "allocation_overdue": {
+      const allocation = rid
+        ? await prisma.allocation.findUnique({
+            where: { id: rid },
+            include: { holder: { select: { firstName: true, lastName: true } } },
+          })
+        : null;
+      if (!allocation) break;
+      const label = await assetLabel(allocation.assetId);
+      const due = allocation.expectedReturnDate
+        ? allocation.expectedReturnDate.toISOString().slice(0, 10)
+        : "its due date";
+      const holder = allocation.holder
+        ? `${allocation.holder.firstName} ${allocation.holder.lastName}`
+        : "a department";
+      add([allocation.holderId], `${label} was due back on ${due} and is now overdue. Please return it.`);
+      add(await staffIds(), `${label} is overdue (held by ${holder}, due ${due}).`);
+      break;
+    }
 
     // Only matters when someone else (a manager) cancelled it.
     case "booking_cancelled": {

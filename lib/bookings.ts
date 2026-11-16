@@ -136,7 +136,7 @@ export type BookingActor = { userId: number; role: string };
 /**
  * Cancel a booking on someone's behalf.
  * Allowed: the person who made it, or an Admin / Asset Manager.
- * Only upcoming bookings that haven't ended yet can be cancelled.
+ * Upcoming and in-progress bookings that haven't ended yet can be cancelled.
  */
 export async function cancelBookingAs(actor: BookingActor, bookingId: number) {
   const booking = await prisma.resourceBooking.findUnique({ where: { id: bookingId } });
@@ -149,13 +149,14 @@ export async function cancelBookingAs(actor: BookingActor, bookingId: number) {
   if (booking.status === "CANCELLED") {
     throw fail(409, "already_cancelled", "This booking is already cancelled");
   }
-  if (booking.status !== "UPCOMING" || booking.endTime.getTime() <= Date.now()) {
+  if (booking.status === "COMPLETED" || booking.endTime.getTime() <= Date.now()) {
     throw fail(409, "booking_finished", "Bookings that have already happened can't be cancelled");
   }
 
   // Atomic: if two requests cancel at once, only one of them changes the row.
+  // (An in-progress booking can still be cancelled to free the room early.)
   const done = await prisma.resourceBooking.updateMany({
-    where: { id: bookingId, status: "UPCOMING" },
+    where: { id: bookingId, status: { in: ["UPCOMING", "ONGOING"] } },
     data: { status: "CANCELLED" },
   });
   if (done.count === 0) {
