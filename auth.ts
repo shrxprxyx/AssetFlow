@@ -1,7 +1,7 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
+import { findUserByEmail } from "@/lib/userLookup";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   session: { strategy: "jwt" },
@@ -15,9 +15,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email as string },
-        });
+        // Case-insensitive, so "Priya@X.com" and "priya@x.com" reach the same account.
+        const user = await findUserByEmail(credentials.email as string);
         if (!user) return null;
 
         // Deactivated accounts can't sign in. Checked before the password so a
