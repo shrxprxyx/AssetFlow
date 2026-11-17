@@ -1,7 +1,12 @@
-import { auth } from "@/auth";
+import NextAuth from "next-auth";
+import { authConfig } from "@/auth.config";
 import { NextResponse } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/reset-password"];
+
+// Built from the edge-safe config only: importing "@/auth" here would pull the
+// database, bcrypt and Redis into middleware, which cannot run them.
+const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;

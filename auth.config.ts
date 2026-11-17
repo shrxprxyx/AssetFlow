@@ -1,0 +1,33 @@
+import type { NextAuthConfig } from "next-auth";
+
+/**
+ * The part of the NextAuth setup that is safe to run in middleware.
+ *
+ * Middleware runs in a restricted runtime, so it must not pull in the database,
+ * bcrypt or Redis. It only needs to read the session cookie, which needs no
+ * providers. `auth.ts` adds the Credentials provider (database + password
+ * check + rate limiting) on top of this for the API routes.
+ */
+export const authConfig = {
+  session: { strategy: "jwt" },
+  pages: { signIn: "/login" },
+  providers: [],
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.role = user.role;
+        token.departmentId = user.departmentId;
+        token.id = user.id;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.id = token.id as string;
+        session.user.role = token.role as string;
+        session.user.departmentId = token.departmentId as number | null;
+      }
+      return session;
+    },
+  },
+} satisfies NextAuthConfig;

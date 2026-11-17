@@ -10,7 +10,9 @@ import {
 
 type Item = { id: number; type: string; message: string; isRead: boolean; createdAt: string };
 
-const POLL_MS = 30000;
+// Updates normally arrive instantly over the event stream. This slow refresh is
+// the safety net: it covers a dropped connection or a Redis outage.
+const POLL_MS = 60000;
 
 export function NotificationsBell() {
   const [items, setItems] = useState<Item[]>([]);
@@ -39,7 +41,17 @@ export function NotificationsBell() {
   useEffect(() => {
     load();
     const t = setInterval(load, POLL_MS);
-    return () => clearInterval(t);
+
+    // Live updates. The browser reconnects by itself if the connection drops;
+    // "ready" fires on every (re)connect, which catches anything missed meanwhile.
+    const stream = new EventSource("/api/notifications/stream");
+    stream.addEventListener("notification", load);
+    stream.addEventListener("ready", load);
+
+    return () => {
+      clearInterval(t);
+      stream.close();
+    };
   }, [load]);
 
   async function markAllRead() {

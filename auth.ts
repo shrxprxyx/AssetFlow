@@ -1,4 +1,5 @@
 import NextAuth from "next-auth";
+import { authConfig } from "@/auth.config";
 import Credentials from "next-auth/providers/credentials";
 import { CredentialsSignin } from "next-auth";
 import bcrypt from "bcryptjs";
@@ -12,8 +13,7 @@ class RateLimitedError extends CredentialsSignin {
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  session: { strategy: "jwt" },
-  pages: { signIn: "/login" },
+  ...authConfig,
   providers: [
     Credentials({
       credentials: {
@@ -50,22 +50,4 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
   ],
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.role = user.role;
-        token.departmentId = user.departmentId;
-        token.id = user.id;
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id as string;
-        session.user.role = token.role as string;
-        session.user.departmentId = token.departmentId as number | null;
-      }
-      return session;
-    },
-  },
 });

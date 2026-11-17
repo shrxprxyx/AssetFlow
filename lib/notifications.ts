@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { publishNotificationsCreated } from "@/lib/realtime";
 
 type ActivityOptions = {
   actorId?: number | null;
@@ -217,4 +218,8 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
       relatedResourceId: opts.resourceId ?? null,
     })),
   });
+
+  // Tell any open browser tabs, so the bell updates now instead of at the next
+  // refresh. Never throws: the notifications are already saved.
+  await publishNotificationsCreated(unique.map((r) => r.userId));
 }
