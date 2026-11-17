@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { logActivity } from "./logActivity";
+import { recordActivity, dispatchActivity } from "./outbox";
 
 const REMINDER_MINUTES = 15;
 
@@ -34,11 +34,29 @@ export async function runOverdueSweep(now: Date = new Date()) {
   let flagged = 0;
   for (const allocation of overdue) {
     if (done.has(allocation.id)) continue;
-    await logActivity("allocation_overdue", {
-      actorId: null,
-      resourceType: "Allocation",
-      resourceId: allocation.id,
+
+    // Lock the allocation, then check again: two sweeps running at once (or one
+    // that started before the asset came back) can't both record it.
+    const eventId = await prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: number }[]>`
+        SELECT id FROM "Allocation"
+        WHERE id = ${allocation.id} AND "status"::text = 'ACTIVE' AND "expectedReturnDate" < ${now}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) return null;
+      const exists = await tx.activityLog.findFirst({
+        where: { action: "allocation_overdue", resourceType: "Allocation", resourceId: allocation.id },
+        select: { id: true },
+      });
+      if (exists) return null;
+      return recordActivity(tx, "allocation_overdue", {
+        actorId: null,
+        resourceType: "Allocation",
+        resourceId: allocation.id,
+      });
     });
+    if (eventId === null) continue;
+    await dispatchActivity(eventId);
     flagged++;
   }
   return { overdue: overdue.length, flagged };
@@ -61,18 +79,24 @@ export async function runBookingTick(now: Date = new Date()) {
 
   let reminded = 0;
   for (const booking of due) {
-    const claimed = await prisma.resourceBooking.updateMany({
-      where: { id: booking.id, status: "UPCOMING", reminderSent: false },
-      data: { reminderSent: true },
-    });
-    if (claimed.count === 1) {
-      await logActivity("booking_reminder", {
+    // The claim and the reminder event commit together. If the event can't be
+    // written the claim is undone, so the next tick tries again instead of the
+    // reminder being lost with the flag already set.
+    const eventId = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.resourceBooking.updateMany({
+        where: { id: booking.id, status: "UPCOMING", reminderSent: false },
+        data: { reminderSent: true },
+      });
+      if (claimed.count !== 1) return null;
+      return recordActivity(tx, "booking_reminder", {
         actorId: null,
         resourceType: "ResourceBooking",
         resourceId: booking.id,
       });
-      reminded++;
-    }
+    });
+    if (eventId === null) continue;
+    await dispatchActivity(eventId);
+    reminded++;
   }
 
   // 2 + 3. Status progression.

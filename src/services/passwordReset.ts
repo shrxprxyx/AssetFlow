@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma, Prisma } from "@/services/prisma";
 import { findUserByEmail } from "@/services/userLookup";
 import { deliverEmail } from "@/services/mailer";
-import { logActivity } from "@/services/logActivity";
+import { recordActivity, dispatchActivity } from "@/services/outbox";
 
 export const RESET_TOKEN_TTL_MINUTES = 30;
 // One reset email per account per minute, so the form can't be used to flood an inbox.
@@ -65,20 +65,26 @@ export async function requestPasswordReset(email: string, requestOrigin: string)
 
   const token = randomBytes(32).toString("base64url");
 
-  await prisma.$transaction([
+  // The audit entry commits with the new token: no token without a record of it.
+  const eventId = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     // Asking again cancels any earlier link that hasn't been used.
-    prisma.passwordResetToken.updateMany({
+    await tx.passwordResetToken.updateMany({
       where: { userId: user.id, usedAt: null },
       data: { usedAt: now },
-    }),
-    prisma.passwordResetToken.create({
+    });
+    await tx.passwordResetToken.create({
       data: {
         userId: user.id,
         tokenHash: hashToken(token),
         expiresAt: new Date(now.getTime() + RESET_TOKEN_TTL_MINUTES * 60_000),
       },
-    }),
-  ]);
+    });
+    return recordActivity(tx, "password_reset_requested", {
+      actorId: user.id,
+      resourceType: "User",
+      resourceId: user.id,
+    });
+  });
 
   await deliverEmail({
     to: user.email,
@@ -95,15 +101,7 @@ export async function requestPasswordReset(email: string, requestOrigin: string)
     ].join("\n"),
   });
 
-  try {
-    await logActivity("password_reset_requested", {
-      actorId: user.id,
-      resourceType: "User",
-      resourceId: user.id,
-    });
-  } catch (err) {
-    console.error("activity log failed for password_reset_requested", err);
-  }
+  await dispatchActivity(eventId);
 }
 
 /**
@@ -124,6 +122,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
 
+  let eventId = 0;
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     // Atomic claim: if the same link is submitted twice at once, only one
     // request flips usedAt from NULL; the other sees count === 0.
@@ -150,15 +149,14 @@ export async function resetPassword(token: string, newPassword: string): Promise
       where: { userId: found.userId, usedAt: null },
       data: { usedAt: now },
     });
-  });
 
-  try {
-    await logActivity("password_reset_completed", {
+    // The new password and its audit entry commit together, or neither does.
+    eventId = await recordActivity(tx, "password_reset_completed", {
       actorId: found.userId,
       resourceType: "User",
       resourceId: found.userId,
     });
-  } catch (err) {
-    console.error("activity log failed for password_reset_completed", err);
-  }
+  });
+
+  await dispatchActivity(eventId);
 }
