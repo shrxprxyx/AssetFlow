@@ -4,6 +4,19 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { logActivity } from "@/lib/logActivity";
 
+// Thrown inside the transaction when another request closed the cycle first.
+class AlreadyClosed extends Error {}
+
+const alreadyClosed = () =>
+  NextResponse.json(
+    { error: "already_closed", message: "This audit cycle is already closed" },
+    { status: 409 }
+  );
+
+// A retired or disposed asset is already out of service; a "missing" finding
+// doesn't bring it back into the lifecycle as LOST.
+const NOT_MARKED_LOST = ["LOST", "RETIRED", "DISPOSED"];
+
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -28,90 +41,129 @@ export async function POST(
 
   if (!cycle) {
     return NextResponse.json(
-      {
-        error: "not_found",
-        message: "Audit cycle not found",
-      },
+      { error: "not_found", message: "Audit cycle not found" },
       { status: 404 }
     );
   }
 
-  if (cycle.status === "CLOSED") {
-    return NextResponse.json(
-      {
-        error: "already_closed",
-        message: "This audit cycle is already closed",
-      },
-      { status: 409 }
-    );
-  }
+  if (cycle.status === "CLOSED") return alreadyClosed();
 
   const adminId = guard.user.userId;
 
-  const result = await prisma.$transaction(
-    async (tx: Prisma.TransactionClient) => {
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Claim the cycle first. If two people press "Close" at the same moment,
+      // only one of them flips it from ACTIVE; the other stops here.
+      const claimed = await tx.auditCycle.updateMany({
+        where: { id: cycleId, status: "ACTIVE" },
+        data: { status: "CLOSED", closedBy: adminId, closedAt: new Date() },
+      });
+      if (claimed.count === 0) throw new AlreadyClosed();
+
       const missingFindings = await tx.auditFinding.findMany({
-        where: {
-          cycleId,
-          status: "MISSING",
-        },
-        include: {
-          asset: true,
-        },
+        where: { cycleId, status: "MISSING" },
+        select: { assetId: true },
+        orderBy: { assetId: "asc" }, // fixed lock order
       });
 
-      for (const finding of missingFindings) {
-        if (finding.asset.status !== "LOST") {
-          await tx.asset.update({
-            where: { id: finding.assetId },
-            data: { status: "LOST" },
-          });
+      const reason = `Flagged missing during audit cycle "${cycle.name}"`;
+      const cancelledBookingIds: number[] = [];
+      let allocationsClosed = 0;
 
-          await tx.assetHistory.create({
-            data: {
-              assetId: finding.assetId,
-              fromStatus: finding.asset.status,
-              toStatus: "LOST",
-              actorId: adminId,
-              reason: `Flagged missing during audit cycle "${cycle.name}"`,
-            },
+      for (const { assetId } of missingFindings) {
+        // Same lock the allocation, booking and lifecycle code take, so this
+        // can't interleave with someone allocating or booking the asset.
+        await tx.$queryRaw`SELECT id FROM "Asset" WHERE id = ${assetId} FOR UPDATE`;
+
+        const asset = await tx.asset.findUnique({
+          where: { id: assetId },
+          select: { status: true },
+        });
+        if (!asset || NOT_MARKED_LOST.includes(asset.status)) continue;
+
+        // A lost asset can't stay allocated: close the open allocation.
+        const closedAllocations = await tx.allocation.updateMany({
+          where: { assetId, status: "ACTIVE" },
+          data: { status: "RETURNED", returnedDate: new Date(), returnNotes: reason },
+        });
+        allocationsClosed += closedAllocations.count;
+
+        // ...and nobody can use it, so its upcoming bookings are cancelled.
+        const upcoming = await tx.resourceBooking.findMany({
+          where: {
+            resourceId: assetId,
+            status: { in: ["UPCOMING", "ONGOING"] },
+            endTime: { gt: new Date() },
+          },
+          select: { id: true },
+        });
+        if (upcoming.length > 0) {
+          const ids = upcoming.map((b: { id: number }) => b.id);
+          await tx.resourceBooking.updateMany({
+            where: { id: { in: ids } },
+            data: { status: "CANCELLED" },
           });
+          cancelledBookingIds.push(...ids);
         }
+
+        await tx.asset.update({ where: { id: assetId }, data: { status: "LOST" } });
+        await tx.assetHistory.create({
+          data: {
+            assetId,
+            fromStatus: asset.status,
+            toStatus: "LOST",
+            actorId: adminId,
+            reason,
+          },
+        });
       }
 
       const damagedCount = await tx.auditFinding.count({
-        where: {
-          cycleId,
-          status: "DAMAGED",
-        },
+        where: { cycleId, status: "DAMAGED" },
       });
 
-      const closed = await tx.auditCycle.update({
-        where: { id: cycleId },
-        data: {
-          status: "CLOSED",
-          closedBy: adminId,
-          closedAt: new Date(),
-        },
-      });
+      const closed = await tx.auditCycle.findUniqueOrThrow({ where: { id: cycleId } });
 
       return {
         cycle: closed,
         discrepancyCount: missingFindings.length + damagedCount,
         missingCount: missingFindings.length,
         damagedCount,
+        allocationsClosed,
+        cancelledBookingIds,
       };
+    });
+  } catch (err) {
+    if (err instanceof AlreadyClosed) return alreadyClosed();
+    throw err;
+  }
+
+  const { cancelledBookingIds, ...summary } = result;
+
+  // Everything is committed; a logging failure must not report the close as failed.
+  try {
+    await logActivity("audit_cycle_closed", {
+      actorId: adminId,
+      resourceType: "AuditCycle",
+      resourceId: cycleId,
+      changes: {
+        discrepancyCount: summary.discrepancyCount,
+        allocationsClosed: summary.allocationsClosed,
+        bookingsCancelled: cancelledBookingIds.length,
+      },
+    });
+    // Tell the people whose bookings were cancelled (the notification skips the actor).
+    for (const bookingId of cancelledBookingIds) {
+      await logActivity("booking_cancelled", {
+        actorId: adminId,
+        resourceType: "ResourceBooking",
+        resourceId: bookingId,
+      });
     }
-  );
+  } catch (err) {
+    console.error("activity log failed for audit_cycle_closed", err);
+  }
 
-  await logActivity("audit_cycle_closed", {
-    actorId: adminId,
-    resourceType: "AuditCycle",
-    resourceId: cycleId,
-    changes: {
-      discrepancyCount: result.discrepancyCount,
-    },
-  });
-
-  return NextResponse.json(result);
+  return NextResponse.json({ ...summary, cancelledBookings: cancelledBookingIds.length });
 }
