@@ -49,10 +49,10 @@ export default function AuditsPage() {
 
   function refetch() {
     setLoading(true);
-    fetch("/api/audit-cycles")
+    fetch("/api/audit-cycles?pageSize=100")
       .then((r) => r.json())
       .then((d) => {
-        setCycles(d.cycles ?? []);
+        setCycles(d.data ?? []);
         setDepartments(d.departments ?? []);
       })
       .finally(() => setLoading(false));

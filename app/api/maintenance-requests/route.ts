@@ -6,11 +6,17 @@ import { logActivity } from "@/lib/logActivity";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
+import { parsePagination, paginated } from "@/lib/pagination";
 
-export async function GET() {
+// GET /api/maintenance-requests?page=1&pageSize=25
+export async function GET(req: NextRequest) {
   const guard = await requireAuth();
   if (!guard.ok) return guard.response;
   const { user } = guard;
+
+  const paging = parsePagination(new URL(req.url).searchParams);
+  if (!paging.ok) return paging.response;
+  const { skip, take } = paging.page;
 
   // Who sees which requests:
   //   Admin / Asset Manager : all of them
@@ -33,15 +39,18 @@ export async function GET() {
 
   // Also returns a minimal asset picker list for the "raise request" form.
   // Lost, retired and disposed assets are left out: they can't be maintained.
-  const [requests, assets] = await Promise.all([
+  const [requests, total, assets] = await Promise.all([
     prisma.maintenanceRequest.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip,
+      take,
       include: {
         asset: { select: { assetTag: true, name: true } },
         requester: { select: { firstName: true, lastName: true } },
       },
     }),
+    prisma.maintenanceRequest.count({ where }),
     prisma.asset.findMany({
       where: { status: { notIn: ["LOST", "RETIRED", "DISPOSED"] } },
       select: { id: true, assetTag: true, name: true, status: true },
@@ -49,7 +58,7 @@ export async function GET() {
     }),
   ]);
 
-  return NextResponse.json({ data: requests, total: requests.length, assets });
+  return paginated(requests, total, paging.page, { assets });
 }
 
 export async function POST(req: NextRequest) {

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { auditCycleSchema } from "@/lib/schemas";
 import { logActivity } from "@/lib/logActivity";
 import { requireAuth } from "@/lib/guards";
+import { parsePagination, paginated } from "@/lib/pagination";
 
 // Same scoping rule as getAssetsInScope() in lib/audits.ts, but returns a count
 // instead of loading every asset row for every cycle on the list page.
@@ -20,13 +21,23 @@ async function countAssetsInScope(scopeType: string, scopeId: number | null) {
   return prisma.asset.count();
 }
 
-// GET /api/audit-cycles -> { cycles: [...with counts], departments: [...] }
-export async function GET() {
+// GET /api/audit-cycles?page=1&pageSize=25
+//   -> { data: [...cycles with counts], total, page, pageSize, departments: [...] }
+export async function GET(req: NextRequest) {
   const guard = await requireAuth("ADMIN", "ASSET_MANAGER", "DEPARTMENT_HEAD");
   if (!guard.ok) return guard.response;
 
-  const [cycles, departments] = await Promise.all([
-    prisma.auditCycle.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
+  const paging = parsePagination(new URL(req.url).searchParams);
+  if (!paging.ok) return paging.response;
+  const { skip, take } = paging.page;
+
+  const [cycles, total, departments] = await Promise.all([
+    prisma.auditCycle.findMany({
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip,
+      take,
+    }),
+    prisma.auditCycle.count(),
     prisma.department.findMany({
       where: { status: "ACTIVE" },
       select: { id: true, name: true },
@@ -58,7 +69,7 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ cycles: result, departments });
+  return paginated(result, total, paging.page, { departments });
 }
 
 // POST /api/audit-cycles -> Admin creates a cycle

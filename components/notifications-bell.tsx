@@ -69,7 +69,7 @@ export function NotificationsBell() {
         <div className="flex items-center justify-between px-3 py-2 border-b">
           <span className="text-sm font-semibold">Notifications</span>
           {unread > 0 && (
-            <Button cursor-pointer variant="ghost" size="sm" onClick={markAllRead}>
+            <Button className="cursor-pointer" variant="ghost" size="sm" onClick={markAllRead}>
               Mark all read
             </Button>
           )}

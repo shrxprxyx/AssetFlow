@@ -320,13 +320,14 @@ export default function AssetsPage() {
       const params = new URLSearchParams();
       if (categoryId) params.set("categoryId", categoryId);
       if (status) params.set("status", status);
+      params.set("pageSize", "100");
       const [assetsRes, catRes] = await Promise.all([
         fetch(`/api/assets?${params}`),
         fetch("/api/asset-categories"),
       ]);
       const assetsData = await assetsRes.json();
       if (!assetsRes.ok) throw new Error(assetsData.message || assetsData.error || "Failed to load assets");
-      setAssets(assetsData);
+      setAssets(assetsData.data ?? []);
       setCategories(await catRes.json());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load assets");

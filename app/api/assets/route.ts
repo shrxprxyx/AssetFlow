@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AssetStatus } from '@prisma/client';
 import { requireAuth } from '@/lib/guards';
 import { readJson, validationError } from '@/lib/http';
+import { parsePagination, paginated } from '@/lib/pagination';
 
 const VALID_ASSET_STATUSES = Object.values(AssetStatus);
 const ci = (v: string) => ({ contains: v, mode: 'insensitive' as const });
@@ -112,26 +113,37 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const assets = await prisma.asset.findMany({
-      where: {
-        ...(tag && { assetTag: ci(tag) }),
-        ...(serial && { serialNumber: ci(serial) }),
-        ...(name && { name: ci(name) }),
-        ...(categoryId && { categoryId }),
-        ...(statusParam && { status: statusParam as AssetStatus }),
-        ...(location && { location: ci(location) }),
-      },
-      include: {
-        category: { select: { name: true } },
-        allocations: {
-          where: { status: 'ACTIVE' },
-          take: 1,
-          include: { holder: { select: { id: true, firstName: true, lastName: true } } },
+    const paging = parsePagination(searchParams);
+    if (!paging.ok) return paging.response;
+    const { skip, take } = paging.page;
+
+    const where: Prisma.AssetWhereInput = {
+      ...(tag && { assetTag: ci(tag) }),
+      ...(serial && { serialNumber: ci(serial) }),
+      ...(name && { name: ci(name) }),
+      ...(categoryId && { categoryId }),
+      ...(statusParam && { status: statusParam as AssetStatus }),
+      ...(location && { location: ci(location) }),
+    };
+
+    const [assets, total] = await Promise.all([
+      prisma.asset.findMany({
+        where,
+        include: {
+          category: { select: { name: true } },
+          allocations: {
+            where: { status: 'ACTIVE' },
+            take: 1,
+            include: { holder: { select: { id: true, firstName: true, lastName: true } } },
+          },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
+        // id breaks ties, so rows never jump between pages.
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      }),
+      prisma.asset.count({ where }),
+    ]);
 
     const formatted = assets.map((asset: (typeof assets)[number]) => ({
       ...asset,
@@ -139,7 +151,7 @@ export async function GET(req: NextRequest) {
       allocations: undefined,
     }));
 
-    return NextResponse.json(formatted);
+    return paginated(formatted, total, paging.page);
   } catch (error) {
     console.error('Error fetching assets:', error);
     return NextResponse.json({ error: 'Failed to fetch assets' }, { status: 500 });

@@ -1,7 +1,8 @@
 import { prisma } from '@/lib/prisma';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/guards';
-import { Role, UserStatus } from '@prisma/client';
+import { Prisma, Role, UserStatus } from '@prisma/client';
+import { parsePagination, paginated } from '@/lib/pagination';
 
 const VALID_ROLES = Object.values(Role);
 const VALID_STATUSES = Object.values(UserStatus);
@@ -38,6 +39,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const paging = parsePagination(searchParams);
+    if (!paging.ok) return paging.response;
+    const { skip, take } = paging.page;
+
     const role = roleParam as Role | null;
     const status = statusParam as UserStatus | null;
 
@@ -45,23 +50,30 @@ export async function GET(req: NextRequest) {
     // query string says.
     let departmentFilter: number | undefined = departmentId ? parseInt(departmentId) : undefined;
     if (user.role === 'DEPARTMENT_HEAD') {
-      if (user.departmentId === null) return NextResponse.json([]);
+      if (user.departmentId === null) return paginated([], 0, paging.page);
       departmentFilter = user.departmentId;
     }
 
-    const employees = await prisma.user.findMany({
-      where: {
-        ...(departmentFilter !== undefined && { departmentId: departmentFilter }),
-        ...(role && { role }),
-        ...(status && { status }),
-      },
-      include: {
-        department: {
-          select: { id: true, name: true },
+    const where: Prisma.UserWhereInput = {
+      ...(departmentFilter !== undefined && { departmentId: departmentFilter }),
+      ...(role && { role }),
+      ...(status && { status }),
+    };
+
+    const [employees, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        include: {
+          department: {
+            select: { id: true, name: true },
+          },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      }),
+      prisma.user.count({ where }),
+    ]);
 
     // Format response
     const formatted = employees.map((emp: typeof employees[number]) => ({
@@ -75,7 +87,7 @@ export async function GET(req: NextRequest) {
       status: emp.status,
     }));
 
-    return NextResponse.json(formatted);
+    return paginated(formatted, total, paging.page);
   } catch (error) {
     console.error('Error fetching employees:', error);
     return NextResponse.json(

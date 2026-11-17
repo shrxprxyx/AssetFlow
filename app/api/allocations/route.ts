@@ -4,6 +4,7 @@ import { allocateAsset } from '@/lib/allocations';
 import { logActivity } from '@/lib/logActivity';
 import { requireAuth } from '@/lib/guards';
 import { readJson, validationError } from '@/lib/http';
+import { parsePagination, paginated } from '@/lib/pagination';
 import { NextRequest, NextResponse } from 'next/server';
 import { AllocationStatus, Prisma } from '@prisma/client';
 
@@ -118,6 +119,10 @@ export async function GET(req: NextRequest) {
     }
     const status = statusParam as AllocationStatus;
 
+    const paging = parsePagination(searchParams);
+    if (!paging.ok) return paging.response;
+    const { skip, take } = paging.page;
+
     // Visibility by role (matches the spec):
     //  - Employee: only what they hold
     //  - Department Head: their department's allocations
@@ -136,36 +141,42 @@ export async function GET(req: NextRequest) {
         : { holderId: user.userId };
     }
 
-    const allocations = await prisma.allocation.findMany({
-      where: {
-        ...scope,
-        ...(assetId && { assetId: parseInt(assetId) }),
-        ...(holderId && { holderId: parseInt(holderId) }),
-        status,
-      },
-      include: {
-        holder: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
-        },
-        asset: {
-          select: {
-            id: true,
-            assetTag: true,
-            name: true,
-            status: true,
-          },
-        },
-      },
-      orderBy: { allocatedDate: 'desc' },
-      take: 100,
-    });
+    const where: Prisma.AllocationWhereInput = {
+      ...scope,
+      ...(assetId && { assetId: parseInt(assetId) }),
+      ...(holderId && { holderId: parseInt(holderId) }),
+      status,
+    };
 
-    return NextResponse.json(allocations);
+    const [allocations, total] = await Promise.all([
+      prisma.allocation.findMany({
+        where,
+        include: {
+          holder: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+          asset: {
+            select: {
+              id: true,
+              assetTag: true,
+              name: true,
+              status: true,
+            },
+          },
+        },
+        orderBy: [{ allocatedDate: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      }),
+      prisma.allocation.count({ where }),
+    ]);
+
+    return paginated(allocations, total, paging.page);
   } catch (error) {
     console.error('Error fetching allocations:', error);
     return NextResponse.json(

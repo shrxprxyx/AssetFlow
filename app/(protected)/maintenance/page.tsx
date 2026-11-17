@@ -65,7 +65,7 @@ export default function MaintenancePage() {
   async function refetch() {
     setLoading(true);
     try {
-      const res = await fetch("/api/maintenance-requests");
+      const res = await fetch("/api/maintenance-requests?pageSize=100");
       const data = await res.json();
       setRequests(data.data ?? []);
       setAssets(data.assets ?? []);

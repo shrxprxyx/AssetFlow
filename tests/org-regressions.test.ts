@@ -62,11 +62,12 @@ describe("regressions for bugs we fixed", () => {
     await createAsset({ name: "Projector" });
 
     const byName = await call(listAssets, "GET", "/api/assets?name=laptop");
-    expect(byName.body).toHaveLength(1);
-    expect(byName.body[0].name).toBe("Dell Laptop");
+    expect(byName.body.data).toHaveLength(1);
+    expect(byName.body.total).toBe(1);
+    expect(byName.body.data[0].name).toBe("Dell Laptop");
 
     const byLocation = await call(listAssets, "GET", "/api/assets?location=ENGINEERING");
-    expect(byLocation.body).toHaveLength(1);
+    expect(byLocation.body.data).toHaveLength(1);
   });
 
   it("answers malformed JSON with a 400, not a crash", async () => {

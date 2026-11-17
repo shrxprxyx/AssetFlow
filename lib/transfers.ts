@@ -285,7 +285,11 @@ export async function cancelTransfer(actor: Actor, requestId: number) {
 
 /* ───────────────────────────── list ───────────────────────────── */
 
-export async function listTransfers(actor: Actor, scope: "PENDING" | "ALL") {
+export async function listTransfers(
+  actor: Actor,
+  scope: "PENDING" | "ALL",
+  paging: { skip: number; take: number } = { skip: 0, take: 50 }
+) {
   let where: Prisma.TransferRequestWhereInput = scope === "PENDING" ? { status: "PENDING" } : {};
   let deptUserIds = new Set<number>();
 
@@ -316,12 +320,16 @@ export async function listTransfers(actor: Actor, scope: "PENDING" | "ALL") {
     };
   }
 
-  const rows = await prisma.transferRequest.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: 50,
-    include: { asset: { select: { id: true, assetTag: true, name: true } } },
-  });
+  const [rows, total] = await Promise.all([
+    prisma.transferRequest.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: paging.skip,
+      take: paging.take,
+      include: { asset: { select: { id: true, assetTag: true, name: true } } },
+    }),
+    prisma.transferRequest.count({ where }),
+  ]);
 
   const ids = new Set<number>();
   for (const r of rows) {
@@ -335,7 +343,7 @@ export async function listTransfers(actor: Actor, scope: "PENDING" | "ALL") {
   });
   const person = new Map(users.map((u) => [u.id, { id: u.id, name: `${u.firstName} ${u.lastName}` }]));
 
-  return rows.map((r) => {
+  const data = rows.map((r) => {
     const pending = r.status === "PENDING";
     const inScope =
       isManager(actor.role) ||
@@ -354,4 +362,7 @@ export async function listTransfers(actor: Actor, scope: "PENDING" | "ALL") {
       canCancel: pending && (r.requestedBy === actor.userId || isManager(actor.role)),
     };
   });
+
+  // `total` counts every request the actor may see, not just this page.
+  return { data, total };
 }

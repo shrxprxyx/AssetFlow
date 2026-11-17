@@ -64,7 +64,7 @@ export function TransferApprovals({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/transfers?status=ALL");
+      const res = await fetch("/api/transfers?status=ALL&pageSize=50");
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || data.error || "Failed to load transfer requests");
       setRows(data.data ?? []);
@@ -81,9 +81,9 @@ export function TransferApprovals({
 
   useEffect(() => {
     if (role !== "EMPLOYEE") return;
-    fetch("/api/assets?status=ALLOCATED")
+    fetch("/api/assets?status=ALLOCATED&pageSize=100")
       .then((r) => r.json())
-      .then((d) => setAssets(Array.isArray(d) ? d : []))
+      .then((d) => setAssets(d.data ?? []))
       .catch(() => setAssets([]));
   }, [role, refreshKey]);
 

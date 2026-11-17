@@ -110,20 +110,21 @@ export default function AllocationsPage() {
     setError("");
     try {
       const [assetsRes, employeesRes, allocationsRes, departmentsRes] = await Promise.all([
-        fetch("/api/assets"),
-        canAllocate ? fetch("/api/employees") : Promise.resolve(null),
-        fetch("/api/allocations?status=ACTIVE"),
+        fetch("/api/assets?pageSize=100"),
+        canAllocate ? fetch("/api/employees?pageSize=100") : Promise.resolve(null),
+        fetch("/api/allocations?status=ACTIVE&pageSize=100"),
         // Everyone needs the names, to show who holds a department-allocated asset.
         fetch("/api/departments"),
       ]);
       const assetsData = await assetsRes.json();
-      const employeesData = employeesRes ? await employeesRes.json() : [];
+      const employeesData = employeesRes ? await employeesRes.json() : { data: [] };
       const allocationsData = await allocationsRes.json();
       const departmentsData = departmentsRes.ok ? await departmentsRes.json() : [];
       if (!assetsRes.ok) throw new Error(assetsData.message || assetsData.error || "Failed to load assets");
-      setAssets(assetsData);
-      setEmployees(Array.isArray(employeesData) ? employeesData : []);
-      setActiveAllocations(Array.isArray(allocationsData) ? allocationsData : []);
+      // Paginated lists answer { data, total, page, pageSize }.
+      setAssets(assetsData.data ?? []);
+      setEmployees(employeesData.data ?? []);
+      setActiveAllocations(allocationsData.data ?? []);
       setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
       setRefreshKey((k) => k + 1);
     } catch (e) {
@@ -144,7 +145,7 @@ export default function AllocationsPage() {
       return;
     }
     setHistoryLoading(true);
-    fetch(`/api/assets/${assetId}/history`)
+    fetch(`/api/assets/${assetId}/history?pageSize=50`)
       .then((r) => r.json())
       .then((d) => setHistory(d.data ?? []))
       .catch(() => setHistory([]))

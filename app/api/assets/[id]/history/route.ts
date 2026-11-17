@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/guards";
+import { parsePagination, paginated } from "@/lib/pagination";
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// GET /api/assets/:id/history?page=1&pageSize=25
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireAuth();
   if (!guard.ok) return guard.response;
 
@@ -12,11 +14,19 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "invalid_id", message: "Invalid asset id" }, { status: 400 });
   }
 
-  const rows = await prisma.assetHistory.findMany({
-    where: { assetId },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
+  const paging = parsePagination(new URL(req.url).searchParams);
+  if (!paging.ok) return paging.response;
+  const { skip, take } = paging.page;
+
+  const [rows, total] = await Promise.all([
+    prisma.assetHistory.findMany({
+      where: { assetId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip,
+      take,
+    }),
+    prisma.assetHistory.count({ where: { assetId } }),
+  ]);
 
   // AssetHistory has no relation to User in the schema, so look up actor names separately.
   const actorIds = [...new Set(rows.map((r) => r.actorId))];
@@ -35,5 +45,5 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     actor: byId.get(r.actorId) ?? null,
   }));
 
-  return NextResponse.json({ data });
+  return paginated(data, total, paging.page);
 }

@@ -131,10 +131,10 @@ function DepartmentsTab() {
     try {
       const [deptRes, empRes] = await Promise.all([
         fetch("/api/departments"),
-        fetch("/api/employees"),
+        fetch("/api/employees?pageSize=100"),
       ]);
       setDepartments(await deptRes.json());
-      setEmployees(await empRes.json());
+      setEmployees((await empRes.json()).data ?? []);
     } catch {
       setError("Failed to load departments");
     } finally {
@@ -476,10 +476,10 @@ function EmployeesTab() {
     setLoading(true);
     try {
       const [empRes, deptRes] = await Promise.all([
-        fetch("/api/employees"),
+        fetch("/api/employees?pageSize=100"),
         fetch("/api/departments"),
       ]);
-      setEmployees(await empRes.json());
+      setEmployees((await empRes.json()).data ?? []);
       setDepartments(await deptRes.json());
     } catch {
       setError("Failed to load employees");
