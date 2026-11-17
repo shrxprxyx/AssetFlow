@@ -260,7 +260,12 @@ export async function approveTransfer(
 
 /* ───────────────────────────── reject ───────────────────────────── */
 
-export async function rejectTransfer(actor: Actor, requestId: number) {
+export async function rejectTransfer(
+  actor: Actor,
+  requestId: number,
+  /** Recorded in the same transaction as the rejection (see lib/outbox.ts). */
+  activity?: ActivitySpec
+) {
   const request = await prisma.transferRequest.findUnique({ where: { id: requestId } });
   if (!request) throw fail(404, "not_found", "Transfer request not found");
   if (request.requestedBy === actor.userId) {
@@ -275,20 +280,30 @@ export async function rejectTransfer(actor: Actor, requestId: number) {
     throw fail(403, "forbidden", "You can't decide transfers for this asset");
   }
 
-  // Atomic: only one decision can flip the row out of PENDING.
-  const updated = await prisma.transferRequest.updateMany({
-    where: { id: requestId, status: "PENDING" },
-    data: { status: "REJECTED", approvedBy: actor.userId, approvedAt: new Date() },
+  let eventId: number | undefined;
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    // Atomic: only one decision can flip the row out of PENDING.
+    const updated = await tx.transferRequest.updateMany({
+      where: { id: requestId, status: "PENDING" },
+      data: { status: "REJECTED", approvedBy: actor.userId, approvedAt: new Date() },
+    });
+    if (updated.count === 0) {
+      throw fail(409, "already_decided", "This request has already been decided");
+    }
+    eventId = await recordFor(tx, activity, undefined);
   });
-  if (updated.count === 0) {
-    throw fail(409, "already_decided", "This request has already been decided");
-  }
+  if (eventId) await dispatchActivity(eventId);
   return { assetId: request.assetId };
 }
 
 /* ───────────────────────────── cancel ───────────────────────────── */
 
-export async function cancelTransfer(actor: Actor, requestId: number) {
+export async function cancelTransfer(
+  actor: Actor,
+  requestId: number,
+  /** Recorded in the same transaction as the cancellation (see lib/outbox.ts). */
+  activity?: ActivitySpec
+) {
   const request = await prisma.transferRequest.findUnique({ where: { id: requestId } });
   if (!request) throw fail(404, "not_found", "Transfer request not found");
 
@@ -296,13 +311,18 @@ export async function cancelTransfer(actor: Actor, requestId: number) {
     throw fail(403, "forbidden", "Only the person who asked can cancel a request");
   }
 
-  const updated = await prisma.transferRequest.updateMany({
-    where: { id: requestId, status: "PENDING" },
-    data: { status: "CANCELLED" },
+  let eventId: number | undefined;
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const updated = await tx.transferRequest.updateMany({
+      where: { id: requestId, status: "PENDING" },
+      data: { status: "CANCELLED" },
+    });
+    if (updated.count === 0) {
+      throw fail(409, "already_decided", "This request has already been decided");
+    }
+    eventId = await recordFor(tx, activity, undefined);
   });
-  if (updated.count === 0) {
-    throw fail(409, "already_decided", "This request has already been decided");
-  }
+  if (eventId) await dispatchActivity(eventId);
   return { assetId: request.assetId };
 }
 

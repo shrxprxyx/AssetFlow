@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { approveTransfer, rejectTransfer, cancelTransfer } from "@/lib/transfers";
-import { logActivity } from "@/lib/logActivity";
 import { requireWriteAuth } from "@/lib/guards";
 
 const bodySchema = z.object({ action: z.enum(["approve", "reject", "cancel"]) });
@@ -46,14 +45,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         resourceId: requestId,
       });
     } else {
-      if (action === "reject") await rejectTransfer(user, requestId);
-      else await cancelTransfer(user, requestId);
-
-      await logActivity(`transfer_${action === "reject" ? "rejected" : "cancelled"}`, {
+      // The event is recorded in the same transaction as the change (see lib/outbox.ts).
+      const activity = {
+        action: `transfer_${action === "reject" ? "rejected" : "cancelled"}`,
         actorId: user.userId,
         resourceType: "TransferRequest",
         resourceId: requestId,
-      });
+      };
+      if (action === "reject") await rejectTransfer(user, requestId, activity);
+      else await cancelTransfer(user, requestId, activity);
     }
 
     return NextResponse.json({ success: true, action });

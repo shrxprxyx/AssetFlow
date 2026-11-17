@@ -25,6 +25,8 @@ export default defineConfig({
       DIRECT_URL: TEST_DATABASE_URL,
       // Notifications are produced inline in tests, so no Redis or worker is needed.
       QUEUE_MODE: "inline",
+      // A leftover load-test setting must never switch the limiter off in tests.
+      RATE_LIMIT_DISABLED: "false",
     },
   },
 });

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { logActivity } from "@/lib/logActivity";
 import { requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
 import {
@@ -66,8 +65,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         });
         return NextResponse.json({ request: updated });
       }
-      const updated = await rejectMaintenanceRequest(id, actorId);
-      await logActivity("maintenance_rejected", {
+      const updated = await rejectMaintenanceRequest(id, actorId, {
+        action: "maintenance_rejected",
         actorId,
         resourceType: "MaintenanceRequest",
         resourceId: id,
@@ -83,8 +82,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           { status: 403 }
         );
       }
-      const updated = await assignTechnician(id, technicianId);
-      await logActivity("maintenance_technician_assigned", {
+      const updated = await assignTechnician(id, technicianId, {
+        action: "maintenance_technician_assigned",
         actorId,
         resourceType: "MaintenanceRequest",
         resourceId: id,
@@ -113,8 +112,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
 
       if (status === "IN_PROGRESS") {
-        const updated = await startMaintenanceRequest(id);
-        await logActivity("maintenance_in_progress", {
+        const updated = await startMaintenanceRequest(id, {
+          action: "maintenance_in_progress",
           actorId,
           resourceType: "MaintenanceRequest",
           resourceId: id,
