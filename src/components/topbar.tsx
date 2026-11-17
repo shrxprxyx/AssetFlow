@@ -1,7 +1,8 @@
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
-import { Search, LogOut } from "lucide-react";
+import { useState } from "react";
+import { Search, LogOut, MonitorOff } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -14,6 +15,22 @@ export function Topbar() {
   const { data: session } = useSession();
   const name = session?.user?.name ?? "User";
   const initials = name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+  const [everywhereFailed, setEverywhereFailed] = useState(false);
+
+  // Ends this session and every other one (other browsers, other devices), then goes to the login page.
+  async function signOutEverywhere() {
+    setEverywhereFailed(false);
+    try {
+      const res = await fetch("/api/account/sign-out-everywhere", { method: "POST" });
+      if (!res.ok) throw new Error("failed");
+    } catch {
+      // Stay signed in, so the person can try again rather than believing every session ended.
+      setEverywhereFailed(true);
+      setTimeout(() => setEverywhereFailed(false), 6000);
+      return;
+    }
+    await signOut({ callbackUrl: "/login" });
+  }
 
   return (
     <header className="flex items-center justify-between border-b px-4 py-3 gap-4">
@@ -25,6 +42,11 @@ export function Topbar() {
         </div>
       </div>
       <div className="flex items-center gap-3">
+        {everywhereFailed && (
+          <span role="alert" className="text-xs text-destructive">
+            Couldn&apos;t sign out of all devices. Try again.
+          </span>
+        )}
         <NotificationsBell />
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -39,6 +61,9 @@ export function Topbar() {
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })}>
               <LogOut className="mr-2 h-4 w-4" /> Log out
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={signOutEverywhere}>
+              <MonitorOff className="mr-2 h-4 w-4" /> Sign out of all devices
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
