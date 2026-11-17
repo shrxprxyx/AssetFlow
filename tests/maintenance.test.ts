@@ -6,8 +6,8 @@ import {
   assignTechnician,
   startMaintenanceRequest,
   resolveMaintenanceRequest,
-} from "@/lib/maintenance";
-import { prisma } from "@/lib/prisma";
+} from "@/services/maintenance";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
 import { call } from "./helpers/http";

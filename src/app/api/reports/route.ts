@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getReportsSummary } from "@/lib/reports";
-import { requireAuth } from "@/lib/guards";
+import { getReportsSummary } from "@/services/reports";
+import { requireAuth } from "@/services/guards";
 
 export async function GET() {
   // Org-wide analytics: managers only (spec: "Give managers actionable insight").

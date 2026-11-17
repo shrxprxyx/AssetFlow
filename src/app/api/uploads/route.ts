@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireWriteAuth } from "@/lib/guards";
-import { LIMITS, rateLimit, tooManyRequests } from "@/lib/rateLimit";
-import { getStore } from "@/lib/storage";
+import { requireWriteAuth } from "@/services/guards";
+import { LIMITS, rateLimit, tooManyRequests } from "@/services/rateLimit";
+import { getStore } from "@/services/storage";
 import {
   MAX_UPLOAD_BYTES,
   MIME,
   detectImageType,
   fileUrl,
   newFileName,
-} from "@/lib/imageUpload";
+} from "@/utils/imageUpload";
 
 export const runtime = "nodejs";
 

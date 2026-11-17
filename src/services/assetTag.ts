@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 
 /**
  * Asset tags (AF-0001, AF-0002, ...) come from a database sequence, so any

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/guards";
-import { getStore } from "@/lib/storage";
-import { mimeForFileName } from "@/lib/imageUpload";
+import { requireAuth } from "@/services/guards";
+import { getStore } from "@/services/storage";
+import { mimeForFileName } from "@/utils/imageUpload";
 
 export const runtime = "nodejs";
 

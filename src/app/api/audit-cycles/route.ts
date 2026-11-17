@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { auditCycleSchema } from "@/lib/schemas";
-import { countAssetsInScope, validateAuditors } from "@/lib/audits";
-import { readJson, validationError } from "@/lib/http";
-import { recordActivity, dispatchActivity } from "@/lib/outbox";
-import { requireAuth, requireWriteAuth } from "@/lib/guards";
-import { parsePagination, paginated } from "@/lib/pagination";
+import { prisma } from "@/services/prisma";
+import { auditCycleSchema } from "@/utils/schemas";
+import { countAssetsInScope, validateAuditors } from "@/services/audits";
+import { readJson, validationError } from "@/utils/http";
+import { recordActivity, dispatchActivity } from "@/services/outbox";
+import { requireAuth, requireWriteAuth } from "@/services/guards";
+import { parsePagination, paginated } from "@/utils/pagination";
 
 // GET /api/audit-cycles?page=1&pageSize=25
 //   -> { data: [...cycles with counts], total, page, pageSize, departments: [...] }
@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
   }
 
   // The cycle, its auditors and their events are created together or not at all
-  // (see lib/outbox.ts).
+  // (see services/outbox.ts).
   const eventIds: number[] = [];
   const cycle = await prisma.$transaction(async (tx) => {
     const created = await tx.auditCycle.create({

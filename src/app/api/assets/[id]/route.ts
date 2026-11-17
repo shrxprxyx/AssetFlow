@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { requireAuth, requireWriteAuth } from "@/lib/guards";
-import { readJson, validationError } from "@/lib/http";
-import { updateAsset } from "@/lib/assetLifecycle";
-import { photoUrlSchema } from "@/lib/schemas";
+import { prisma } from "@/services/prisma";
+import { requireAuth, requireWriteAuth } from "@/services/guards";
+import { readJson, validationError } from "@/utils/http";
+import { updateAsset } from "@/services/assetLifecycle";
+import { photoUrlSchema } from "@/utils/schemas";
 
 const badId = () =>
   NextResponse.json({ error: "invalid_id", message: "Invalid asset id" }, { status: 400 });
@@ -76,7 +76,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!parsed.success) return validationError(parsed.error);
 
   try {
-    // The event is recorded in the edit's own transaction (see lib/outbox.ts).
+    // The event is recorded in the edit's own transaction (see services/outbox.ts).
     const asset = await updateAsset(id, parsed.data, {
       action: "asset_updated",
       actorId: guard.user.userId,

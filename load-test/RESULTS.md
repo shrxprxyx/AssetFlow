@@ -29,7 +29,7 @@ What it shows
 
 - **Integrity held under contention.** 20 writers fought over one asset and exactly one won; no double allocation, no overlapping booking, no status mismatch.
 - **The server was saturated.** Even the fastest read took 253 ms, and the median was about 700 ms. About 95 requests per second looks like this machine's ceiling with everything on it, so requests queued. These are not latencies a single user would see.
-- **A real bug was found.** 9 of 194 asset creations failed (409 "could not generate a unique asset tag"): simultaneous creates were all given the same tag. Fixed with a database sequence (see `lib/assetTag.ts`).
+- **A real bug was found.** 9 of 194 asset creations failed (409 "could not generate a unique asset tag"): simultaneous creates were all given the same tag. Fixed with a database sequence (see `services/assetTag.ts`).
 - **Not yet known:** which endpoint is slowest. The script now prints a per-endpoint table.
 
 Next run: re-run after the asset tag fix, then once with `-e READ_VUS=8 -e WRITE_VUS=2` as a baseline. If that run is fast, the 100-user numbers are queueing and the work is raising throughput; if it is also slow, individual requests are expensive.

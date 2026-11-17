@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CreateAssetSchema } from "@/lib/schemas";
+import { CreateAssetSchema } from "@/utils/schemas";
 
 const base = { name: "Laptop", categoryId: 1 };
 

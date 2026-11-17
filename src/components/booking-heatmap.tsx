@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import type { Heatmap } from "@/lib/heatmap";
+import { cn } from "@/utils/utils";
+import type { Heatmap } from "@/utils/heatmap";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const RANGES = [7, 30, 90] as const;

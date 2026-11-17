@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { promoteSchema } from "@/lib/schemas";
-import { prisma } from "@/lib/prisma";
-import { recordActivity, dispatchActivity } from "@/lib/outbox";
-import { requireWriteAuth } from "@/lib/guards";
-import { readJson, validationError } from "@/lib/http";
+import { promoteSchema } from "@/utils/schemas";
+import { prisma } from "@/services/prisma";
+import { recordActivity, dispatchActivity } from "@/services/outbox";
+import { requireWriteAuth } from "@/services/guards";
+import { readJson, validationError } from "@/utils/http";
 
 // Changes an employee's role (promote or demote). Admin only.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "admin_target", message: "Admin roles can't be changed here" }, { status: 400 });
   }
 
-  // The event commits with the change (see lib/outbox.ts).
+  // The event commits with the change (see services/outbox.ts).
   let eventId = 0;
   const updated = await prisma.$transaction(async (tx) => {
     const saved = await tx.user.update({

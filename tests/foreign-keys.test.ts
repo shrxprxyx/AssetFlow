@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset, createDepartment } from "./helpers/db";
 
 // These are database-level guarantees: they hold no matter which code path writes.

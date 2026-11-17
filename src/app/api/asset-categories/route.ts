@@ -1,8 +1,8 @@
-import { prisma, Prisma } from '@/lib/prisma';
-import { CreateAssetCategorySchema, UpdateAssetCategorySchema } from '@/lib/schemas';
+import { prisma, Prisma } from '@/services/prisma';
+import { CreateAssetCategorySchema, UpdateAssetCategorySchema } from '@/utils/schemas';
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth, requireWriteAuth } from '@/lib/guards';
-import { readJson, validationError } from '@/lib/http';
+import { requireAuth, requireWriteAuth } from '@/services/guards';
+import { readJson, validationError } from '@/utils/http';
 
 const bad = (message: string, field?: string, status = 400) =>
   NextResponse.json({ error: 'validation_error', message, field }, { status });

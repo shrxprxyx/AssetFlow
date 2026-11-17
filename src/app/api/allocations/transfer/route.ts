@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { TransferAssetSchema } from "@/lib/schemas";
-import { createTransferRequest } from "@/lib/transfers";
-import { requireWriteAuth } from "@/lib/guards";
+import { TransferAssetSchema } from "@/utils/schemas";
+import { createTransferRequest } from "@/services/transfers";
+import { requireWriteAuth } from "@/services/guards";
 
 // Creates a transfer REQUEST. The asset doesn't move until it's approved
-// (managers' own requests are approved immediately; see lib/transfers.ts).
+// (managers' own requests are approved immediately; see services/transfers.ts).
 export async function POST(req: NextRequest) {
   const guard = await requireWriteAuth();
   if (!guard.ok) return guard.response;
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   const { assetId, toHolderId, reason } = parsed.data;
 
   try {
-    // The event is recorded in the request's own transaction (see lib/outbox.ts).
+    // The event is recorded in the request's own transaction (see services/outbox.ts).
     const result = await createTransferRequest(user, { assetId, toHolderId, reason }, (r) => ({
       action: r.autoApproved ? "transfer_completed" : "transfer_requested",
       actorId: user.userId,

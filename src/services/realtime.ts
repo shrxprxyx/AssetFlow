@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import IORedis from "ioredis";
-import { redisUrl } from "@/lib/queue";
+import { redisUrl } from "@/services/queue";
 
 /**
  * "This user has new notifications" messages, from whichever process created

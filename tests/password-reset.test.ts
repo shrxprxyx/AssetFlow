@@ -3,16 +3,16 @@ import { NextRequest } from "next/server";
 import bcrypt from "bcryptjs";
 
 // Capture outgoing email instead of sending it, so tests can read the reset link.
-vi.mock("@/lib/mailer", () => ({
+vi.mock("@/services/mailer", () => ({
   deliverEmail: vi.fn(async () => undefined),
   sendMail: vi.fn(async () => undefined),
 }));
 
 import { POST as forgotPassword } from "@/app/api/auth/forgot-password/route";
 import { POST as resetPasswordRoute } from "@/app/api/auth/reset-password/route";
-import { deliverEmail } from "@/lib/mailer";
-import { hashToken } from "@/lib/passwordReset";
-import { prisma } from "@/lib/prisma";
+import { deliverEmail } from "@/services/mailer";
+import { hashToken } from "@/services/passwordReset";
+import { prisma } from "@/services/prisma";
 import { resetDb } from "./helpers/db";
 import { call } from "./helpers/http";
 

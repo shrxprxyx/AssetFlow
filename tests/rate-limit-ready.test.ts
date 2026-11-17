@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { EventEmitter } from "node:events";
-import { waitUntilReady } from "@/lib/rateLimit";
+import { waitUntilReady } from "@/services/rateLimit";
 
 // A stand-in for the Redis client: just a status and the ready event.
 function fakeClient(status: string) {

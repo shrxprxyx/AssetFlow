@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/guards";
-import { openNotificationStream } from "@/lib/sse";
+import { requireAuth } from "@/services/guards";
+import { openNotificationStream } from "@/services/sse";
 
 // Streams must never be cached or pre-rendered, and need the Node runtime
 // (Redis and long-lived responses don't work on the edge).

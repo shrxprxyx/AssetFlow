@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { rejectTransfer, cancelTransfer } from "@/lib/transfers";
+import { rejectTransfer, cancelTransfer } from "@/services/transfers";
 import {
   approveMaintenanceRequest,
   rejectMaintenanceRequest,
   assignTechnician,
   startMaintenanceRequest,
-} from "@/lib/maintenance";
-import { prisma } from "@/lib/prisma";
+} from "@/services/maintenance";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 
 // The same guarantee as outbox-atomic.test.ts, for the actions that used to write

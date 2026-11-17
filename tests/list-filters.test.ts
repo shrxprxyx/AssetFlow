@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { GET as listAssets } from "@/app/api/assets/route";
 import { GET as listActivity } from "@/app/api/activity/route";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset, createCategory } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
 import { call } from "./helpers/http";

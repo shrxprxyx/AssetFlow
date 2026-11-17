@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireWriteAuth } from "@/lib/guards";
-import { prisma } from "@/lib/prisma";
+import { requireWriteAuth } from "@/services/guards";
+import { prisma } from "@/services/prisma";
 import { Prisma } from "@prisma/client";
-import { recordActivity, dispatchActivity } from "@/lib/outbox";
+import { recordActivity, dispatchActivity } from "@/services/outbox";
 
 // Thrown inside the transaction when another request closed the cycle first.
 class AlreadyClosed extends Error {}
@@ -140,7 +140,7 @@ export async function POST(
 
       const closed = await tx.auditCycle.findUniqueOrThrow({ where: { id: cycleId } });
 
-      // The events are committed together with the close itself (see lib/outbox.ts):
+      // The events are committed together with the close itself (see services/outbox.ts):
       // a closed cycle can't exist without its audit entry and notifications.
       const discrepancyCount = missingFindings.length + damagedCount;
       const eventIds: number[] = [];

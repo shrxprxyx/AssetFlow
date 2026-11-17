@@ -1,4 +1,4 @@
-import { subscribeToNotifications } from "@/lib/realtime";
+import { subscribeToNotifications } from "@/services/realtime";
 
 /** Server-Sent Events stream behind the notification bell. */
 

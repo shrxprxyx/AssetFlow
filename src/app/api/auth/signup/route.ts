@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { signupSchema } from "@/lib/schemas";
-import { prisma, Prisma } from "@/lib/prisma";
-import { findUserByEmail, normalizeEmail } from "@/lib/userLookup";
-import { readJson, validationError } from "@/lib/http";
-import { resendVerification, sendVerificationEmail } from "@/lib/emailVerification";
-import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/lib/rateLimit";
+import { signupSchema } from "@/utils/schemas";
+import { prisma, Prisma } from "@/services/prisma";
+import { findUserByEmail, normalizeEmail } from "@/services/userLookup";
+import { readJson, validationError } from "@/utils/http";
+import { resendVerification, sendVerificationEmail } from "@/services/emailVerification";
+import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/services/rateLimit";
 
 const emailTaken = () =>
   NextResponse.json(

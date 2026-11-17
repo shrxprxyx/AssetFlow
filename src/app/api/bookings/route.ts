@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { bookingSchema } from "@/lib/schemas";
-import { createBooking, getBookingsForResource } from "@/lib/bookings";
-import { requireAuth, requireWriteAuth } from "@/lib/guards";
-import { readJson, validationError } from "@/lib/http";
+import { bookingSchema } from "@/utils/schemas";
+import { createBooking, getBookingsForResource } from "@/services/bookings";
+import { requireAuth, requireWriteAuth } from "@/services/guards";
+import { readJson, validationError } from "@/utils/http";
 
 export async function GET(req: NextRequest) {
   const guard = await requireAuth();

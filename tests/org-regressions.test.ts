@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { GET as listAssets } from "@/app/api/assets/route";
 import { POST as createDepartment, PUT as updateDepartment } from "@/app/api/departments/route";
 import { POST as createCategory, PUT as updateCategory } from "@/app/api/asset-categories/route";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
 import { call } from "./helpers/http";

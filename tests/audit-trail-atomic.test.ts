@@ -9,7 +9,7 @@ import { POST as createCycle } from "@/app/api/audit-cycles/route";
 import { POST as addAuditors, DELETE as removeAuditor } from "@/app/api/audit-cycles/[id]/auditors/route";
 import { PATCH as recordFinding } from "@/app/api/audit-cycles/[id]/findings/route";
 import { PATCH as resolveFinding } from "@/app/api/audit-cycles/[id]/findings/[findingId]/resolution/route";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset, createDepartment } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
 import { jsonRequest } from "./helpers/http";

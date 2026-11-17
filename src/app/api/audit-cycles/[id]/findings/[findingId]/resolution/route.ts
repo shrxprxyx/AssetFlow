@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireWriteAuth } from "@/lib/guards";
-import { discrepancyResolutionSchema } from "@/lib/schemas";
-import { FLAGGED_STATUSES } from "@/lib/audits";
-import { recordActivity, dispatchActivity } from "@/lib/outbox";
-import { readJson, validationError } from "@/lib/http";
+import { prisma } from "@/services/prisma";
+import { requireWriteAuth } from "@/services/guards";
+import { discrepancyResolutionSchema } from "@/utils/schemas";
+import { FLAGGED_STATUSES } from "@/services/audits";
+import { recordActivity, dispatchActivity } from "@/services/outbox";
+import { readJson, validationError } from "@/utils/http";
 
 // PATCH /api/audit-cycles/:id/findings/:findingId/resolution
 //   { decision: "APPROVED" | "REJECTED", notes?: string }
@@ -52,7 +52,7 @@ export async function PATCH(
     );
   }
 
-  // The event commits with the decision (see lib/outbox.ts).
+  // The event commits with the decision (see services/outbox.ts).
   let eventId = 0;
   const updated = await prisma.$transaction(async (tx) => {
     const saved = await tx.auditFinding.update({

@@ -1,8 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
-import { scopeWhere, type CycleScope } from "./auditScope";
+import { scopeWhere, type CycleScope } from "@/utils/auditScope";
 
-export { scopeWhere, FLAGGED_STATUSES, discrepancyIsOpen } from "./auditScope";
+export { scopeWhere, FLAGGED_STATUSES, discrepancyIsOpen } from "@/utils/auditScope";
 
 export type ScopedAsset = {
   id: number;

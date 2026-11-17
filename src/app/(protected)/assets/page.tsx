@@ -21,8 +21,8 @@ import { Pager } from "@/components/pager";
 import { PhotoField } from "@/components/photo-field";
 import { AssetQrDialog } from "@/components/asset-qr-dialog";
 import { QrScanner } from "@/components/qr-scanner";
-import { tagFromScan } from "@/lib/qr";
-import { cn } from "@/lib/utils";
+import { tagFromScan } from "@/utils/qr";
+import { cn } from "@/utils/utils";
 
 // ── Types ──────────────────────────────────────────────
 

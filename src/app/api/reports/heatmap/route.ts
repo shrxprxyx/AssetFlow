@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/guards";
-import { getBookingHeatmap } from "@/lib/reports";
-import { isValidTimeZone } from "@/lib/heatmap";
+import { requireAuth } from "@/services/guards";
+import { getBookingHeatmap } from "@/services/reports";
+import { isValidTimeZone } from "@/utils/heatmap";
 
 const ALLOWED_DAYS = [7, 30, 90];
 

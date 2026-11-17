@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { allocateAsset, returnAsset } from "@/lib/allocations";
-import { createBooking, cancelBookingAs } from "@/lib/bookings";
-import { createTransferRequest, approveTransfer } from "@/lib/transfers";
+import { allocateAsset, returnAsset } from "@/services/allocations";
+import { createBooking, cancelBookingAs } from "@/services/bookings";
+import { createTransferRequest, approveTransfer } from "@/services/transfers";
 import {
   approveMaintenanceRequest,
   assignTechnician,
   startMaintenanceRequest,
   resolveMaintenanceRequest,
-} from "@/lib/maintenance";
-import { prisma } from "@/lib/prisma";
+} from "@/services/maintenance";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 
 // Inline mode (tests): dispatchActivity() processes the event straight away, so

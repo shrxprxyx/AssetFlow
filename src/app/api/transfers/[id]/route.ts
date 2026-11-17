@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { approveTransfer, rejectTransfer, cancelTransfer } from "@/lib/transfers";
-import { requireWriteAuth } from "@/lib/guards";
+import { approveTransfer, rejectTransfer, cancelTransfer } from "@/services/transfers";
+import { requireWriteAuth } from "@/services/guards";
 
 const bodySchema = z.object({ action: z.enum(["approve", "reject", "cancel"]) });
 
@@ -37,7 +37,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   try {
     if (action === "approve") {
-      // The event is recorded in the approval's own transaction (see lib/outbox.ts).
+      // The event is recorded in the approval's own transaction (see services/outbox.ts).
       await approveTransfer(user, requestId, {
         action: "transfer_approved",
         actorId: user.userId,
@@ -45,7 +45,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         resourceId: requestId,
       });
     } else {
-      // The event is recorded in the same transaction as the change (see lib/outbox.ts).
+      // The event is recorded in the same transaction as the change (see services/outbox.ts).
       const activity = {
         action: `transfer_${action === "reject" ? "rejected" : "cancelled"}`,
         actorId: user.userId,

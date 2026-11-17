@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Replace the queue so we can decide whether "Redis" works.
-vi.mock("@/lib/queue", () => ({ enqueueNotification: vi.fn() }));
+vi.mock("@/services/queue", () => ({ enqueueNotification: vi.fn() }));
 
-import { enqueueNotification } from "@/lib/queue";
-import { logActivity } from "@/lib/logActivity";
-import { prisma } from "@/lib/prisma";
+import { enqueueNotification } from "@/services/queue";
+import { logActivity } from "@/services/logActivity";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 
 const queue = vi.mocked(enqueueNotification);

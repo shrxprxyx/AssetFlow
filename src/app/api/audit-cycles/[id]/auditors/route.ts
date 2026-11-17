@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireWriteAuth } from "@/lib/guards";
-import { auditorsSchema } from "@/lib/schemas";
-import { validateAuditors } from "@/lib/audits";
-import { recordActivity, dispatchActivity } from "@/lib/outbox";
-import { readJson, validationError } from "@/lib/http";
+import { prisma } from "@/services/prisma";
+import { requireWriteAuth } from "@/services/guards";
+import { auditorsSchema } from "@/utils/schemas";
+import { validateAuditors } from "@/services/audits";
+import { recordActivity, dispatchActivity } from "@/services/outbox";
+import { readJson, validationError } from "@/utils/http";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     );
   }
 
-  // The assignments and their events commit together (see lib/outbox.ts).
+  // The assignments and their events commit together (see services/outbox.ts).
   const eventIds: number[] = [];
   const created = await prisma.$transaction(async (tx) => {
     const made = await tx.auditAssignment.createMany({
@@ -115,7 +115,7 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
     );
   }
 
-  // The removal and its event commit together (see lib/outbox.ts).
+  // The removal and its event commit together (see services/outbox.ts).
   let eventId = 0;
   await prisma.$transaction(async (tx) => {
     await tx.auditAssignment.deleteMany({ where: { cycleId: cycle.id, auditorId } });

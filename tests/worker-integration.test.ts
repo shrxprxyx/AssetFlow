@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
 import IORedis from "ioredis";
 import { startWorkers } from "../worker/runtime";
-import { handleEventJob } from "@/lib/outbox";
-import { runOverdueSweep } from "@/lib/sweeps";
-import { prisma } from "@/lib/prisma";
+import { handleEventJob } from "@/services/outbox";
+import { runOverdueSweep } from "@/services/sweeps";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 
 // These tests use the REAL queue (Redis) and the REAL worker code.
@@ -50,7 +50,7 @@ async function freshLogActivity(url: string) {
   await resetProducer();
   vi.resetModules();
   process.env.REDIS_URL = url;
-  return (await import("@/lib/logActivity")).logActivity;
+  return (await import("@/services/logActivity")).logActivity;
 }
 
 const startRealWorker = (schedule: Record<string, number> = {}) =>

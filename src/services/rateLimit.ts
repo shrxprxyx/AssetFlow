@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import IORedis from "ioredis";
-import { redisUrl } from "@/lib/queue";
+import { redisUrl } from "@/services/queue";
 
 /**
  * Fixed-window rate limiting.
@@ -32,7 +32,7 @@ export type RateLimitResult = {
 
 /** Every limit in one place. */
 export const LIMITS = {
-  /** Sign-in attempts per account (see lib/loginLimit.ts). */
+  /** Sign-in attempts per account (see services/loginLimit.ts). */
   loginEmail: { name: "login-email", limit: 10, windowSec: 15 * 60 },
   /** Sign-in attempts per address, across all accounts. */
   loginIp: { name: "login-ip", limit: 30, windowSec: 15 * 60 },

@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 
 type SearchSelectProps<T extends { id: number }> = {
   /** A list endpoint that answers { data, total } and understands ?q= and ?pageSize=. */

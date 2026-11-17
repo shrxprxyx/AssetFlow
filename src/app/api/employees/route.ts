@@ -1,8 +1,8 @@
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/services/prisma';
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/guards';
+import { requireAuth } from '@/services/guards';
 import { Prisma, Role, UserStatus } from '@prisma/client';
-import { parsePagination, paginated } from '@/lib/pagination';
+import { parsePagination, paginated } from '@/utils/pagination';
 
 const VALID_ROLES = Object.values(Role);
 const VALID_STATUSES = Object.values(UserStatus);

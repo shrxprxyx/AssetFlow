@@ -13,7 +13,7 @@ import {
   type ForgotPasswordInput,
   type LoginInput,
   type SignupInput,
-} from "@/lib/schemas";
+} from "@/utils/schemas";
 
 /* ───────────────────────── shared building blocks ───────────────────────── */
 

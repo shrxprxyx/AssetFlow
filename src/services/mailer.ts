@@ -1,4 +1,4 @@
-import { enqueueEmail, type EmailJobData } from "@/lib/queue";
+import { enqueueEmail, type EmailJobData } from "@/services/queue";
 
 export type Email = EmailJobData;
 

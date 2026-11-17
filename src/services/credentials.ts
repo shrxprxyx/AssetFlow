@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { findUserByEmail } from "@/lib/userLookup";
+import { findUserByEmail } from "@/services/userLookup";
 
 export type CredentialResult =
   | { ok: true; user: NonNullable<Awaited<ReturnType<typeof findUserByEmail>>> }

@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { requireWriteAuth } from "@/lib/guards";
-import { readJson, validationError } from "@/lib/http";
+import { prisma } from "@/services/prisma";
+import { requireWriteAuth } from "@/services/guards";
+import { readJson, validationError } from "@/utils/http";
 import {
   approveMaintenanceRequest,
   rejectMaintenanceRequest,
   assignTechnician,
   startMaintenanceRequest,
   resolveMaintenanceRequest,
-} from "@/lib/maintenance";
+} from "@/services/maintenance";
 
-// Kept local rather than added to lib/schemas.ts to avoid touching a
+// Kept local rather than added to utils/schemas.ts to avoid touching a
 // shared file mid-build — fold into schemas.ts at the next merge sync.
 const maintenancePatchSchema = z
   .object({
@@ -56,7 +56,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         );
       }
       if (status === "APPROVED") {
-        // Recorded in the approval's own transaction (see lib/outbox.ts).
+        // Recorded in the approval's own transaction (see services/outbox.ts).
         const updated = await approveMaintenanceRequest(id, actorId, {
           action: "maintenance_approved",
           actorId,

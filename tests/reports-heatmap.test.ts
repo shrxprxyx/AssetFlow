@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { GET } from "@/app/api/reports/heatmap/route";
-import { prisma } from "@/lib/prisma";
-import { getBookingHeatmap } from "@/lib/reports";
+import { prisma } from "@/services/prisma";
+import { getBookingHeatmap } from "@/services/reports";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 import { signInAs, signOut } from "./helpers/auth";
 import { call } from "./helpers/http";

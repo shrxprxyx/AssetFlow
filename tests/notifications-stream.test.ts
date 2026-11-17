@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { GET as openStream } from "@/app/api/notifications/stream/route";
-import { MAX_STREAMS_PER_USER } from "@/lib/sse";
-import { notifyForActivity } from "@/lib/notifications";
+import { MAX_STREAMS_PER_USER } from "@/services/sse";
+import { notifyForActivity } from "@/services/notifications";
 import { resetDb, createUser } from "./helpers/db";
 import { signInAs, signOut } from "./helpers/auth";
 

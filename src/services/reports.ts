@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { buildHeatmap } from "./heatmap";
+import { buildHeatmap } from "@/utils/heatmap";
 
 const MONTHS_BACK = 6;
 

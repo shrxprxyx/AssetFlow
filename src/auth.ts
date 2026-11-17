@@ -2,9 +2,9 @@ import NextAuth from "next-auth";
 import { authConfig } from "@/auth.config";
 import Credentials from "next-auth/providers/credentials";
 import { CredentialsSignin } from "next-auth";
-import { checkCredentials } from "@/lib/credentials";
-import { clientIp } from "@/lib/rateLimit";
-import { consumeLoginAttempt, clearLoginFailures } from "@/lib/loginLimit";
+import { checkCredentials } from "@/services/credentials";
+import { clientIp } from "@/services/rateLimit";
+import { consumeLoginAttempt, clearLoginFailures } from "@/services/loginLimit";
 
 /** Too many sign-in attempts. The login page shows a "try again later" message for code "rate_limited". */
 class RateLimitedError extends CredentialsSignin {

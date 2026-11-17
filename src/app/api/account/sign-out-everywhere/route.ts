@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireWriteAuth } from "@/lib/guards";
-import { logActivity } from "@/lib/logActivity";
+import { prisma } from "@/services/prisma";
+import { requireWriteAuth } from "@/services/guards";
+import { logActivity } from "@/services/logActivity";
 
 // POST /api/account/sign-out-everywhere
 // Ends every session of the signed-in user, this one included. The caller

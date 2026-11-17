@@ -10,7 +10,7 @@ import type { NextAuthConfig } from "next-auth";
  */
 export const authConfig = {
   // Short sessions: a stolen cookie stops working within a day even if never revoked.
-  // (Revoking sooner: bump User.sessionVersion, see lib/guards.ts.)
+  // (Revoking sooner: bump User.sessionVersion, see services/guards.ts.)
   session: { strategy: "jwt", maxAge: 8 * 60 * 60 },
   pages: { signIn: "/login" },
   providers: [],

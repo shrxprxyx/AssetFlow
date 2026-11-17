@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 import type { AssetStatus, Role, UserStatus } from "@prisma/client";
 
 /** Empty every table (keeps the schema, indexes and constraints). */

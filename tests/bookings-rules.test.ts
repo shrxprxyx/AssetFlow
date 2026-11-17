@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { POST as book, GET as listBookings } from "@/app/api/bookings/route";
 import { DELETE as cancel } from "@/app/api/bookings/[id]/route";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 import { signInAs, signOut } from "./helpers/auth";
 import { call, jsonRequest } from "./helpers/http";

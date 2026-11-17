@@ -6,8 +6,8 @@ import {
   clientIp,
   tooManyRequests,
   type RateLimitRule,
-} from "@/lib/rateLimit";
-import { consumeLoginAttempt, clearLoginFailures, LOGIN_EMAIL_RULE } from "@/lib/loginLimit";
+} from "@/services/rateLimit";
+import { consumeLoginAttempt, clearLoginFailures, LOGIN_EMAIL_RULE } from "@/services/loginLimit";
 
 const rule: RateLimitRule = { name: "test", limit: 3, windowSec: 60 };
 

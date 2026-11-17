@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { prisma } from "@/lib/prisma";
-import { findUserByEmail } from "@/lib/userLookup";
-import { deliverEmail } from "@/lib/mailer";
-import { appBaseUrl, hashToken } from "@/lib/passwordReset";
+import { prisma } from "@/services/prisma";
+import { findUserByEmail } from "@/services/userLookup";
+import { deliverEmail } from "@/services/mailer";
+import { appBaseUrl, hashToken } from "@/services/passwordReset";
 
 export const VERIFY_TOKEN_TTL_HOURS = 24;
 // One verification email per account per minute, so the resend form can't flood an inbox.

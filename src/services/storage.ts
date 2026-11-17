@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
-import { FILE_NAME_RE } from "./imageUpload";
+import { FILE_NAME_RE } from "@/utils/imageUpload";
 
 /**
  * Where uploaded files live. The rest of the app only talks to this interface,

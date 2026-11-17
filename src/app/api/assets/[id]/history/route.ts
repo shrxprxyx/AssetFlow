@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/guards";
-import { parsePagination, paginated } from "@/lib/pagination";
+import { prisma } from "@/services/prisma";
+import { requireAuth } from "@/services/guards";
+import { parsePagination, paginated } from "@/utils/pagination";
 
 // GET /api/assets/:id/history?page=1&pageSize=25
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { verifyEmail } from "@/lib/emailVerification";
-import { readJson, validationError } from "@/lib/http";
-import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/lib/rateLimit";
+import { verifyEmail } from "@/services/emailVerification";
+import { readJson, validationError } from "@/utils/http";
+import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/services/rateLimit";
 
 const schema = z.object({ token: z.string().min(1, "Verification link is missing its token") });
 

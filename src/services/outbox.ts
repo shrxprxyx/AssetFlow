@@ -1,7 +1,7 @@
-import { prisma, Prisma } from "@/lib/prisma";
-import { createNotificationsFor, notifyForActivity } from "@/lib/notifications";
-import { publishNotificationsCreated } from "@/lib/realtime";
-import { enqueueNotification, type EventJobData } from "@/lib/queue";
+import { prisma, Prisma } from "@/services/prisma";
+import { createNotificationsFor, notifyForActivity } from "@/services/notifications";
+import { publishNotificationsCreated } from "@/services/realtime";
+import { enqueueNotification, type EventJobData } from "@/services/queue";
 
 /**
  * The outbox: ActivityLog doubles as the list of events that still have to be

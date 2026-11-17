@@ -4,8 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { AuthShell } from "@/components/auth-shell";
 import { SignupForm } from "@/components/auth-forms";
-import { authApi } from "@/lib/api-client";
-import type { SignupInput } from "@/lib/schemas";
+import { authApi } from "@/services/api-client";
+import type { SignupInput } from "@/utils/schemas";
 
 export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);

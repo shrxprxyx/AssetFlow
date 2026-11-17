@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/guards";
+import { prisma } from "@/services/prisma";
+import { requireAuth } from "@/services/guards";
 
 export async function GET() {
   // Aggregate counts only — safe for every signed-in role.

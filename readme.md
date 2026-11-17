@@ -235,7 +235,7 @@ Allocated and Under Maintenance are managed by the allocation and maintenance wo
 | Database | PostgreSQL 16 + PgBouncer | Docker for local dev; migrations bypass the pooler via `DIRECT_URL` |
 | Queue / jobs | Redis 7, BullMQ, ioredis | Separate worker process (`worker/`), run with `tsx` |
 | Auth | NextAuth (Credentials) + bcryptjs | JWT sessions |
-| Validation | Zod | Shared schemas in `src/lib/schemas.ts` |
+| Validation | Zod | Shared schemas in `src/utils/schemas.ts` |
 | Testing | Vitest | Real Postgres (separate test database) and real Redis |
 
 ---
@@ -412,7 +412,7 @@ Assets and maintenance requests can carry a photo. The form uploads the file to 
 - **Names:** files are stored under a random UUID; only names of that exact shape are ever read from disk, so paths like `../..` never reach the file system.
 - **Limits:** 30 uploads per user per 10 minutes, on top of the general write limit.
 - **`photoUrl` accepts** an uploaded path or a plain `http(s)` link (older records). Other values, such as `javascript:`, are refused.
-- **Storage is swappable.** Everything goes through the `FileStore` interface in `src/lib/storage.ts` (`put`, `get`, `delete`); the default `LocalDiskStore` writes to `UPLOAD_DIR`. To use S3 or MinIO later, add one class and change `getStore()`: the saved paths, pages and forms stay the same.
+- **Storage is swappable.** Everything goes through the `FileStore` interface in `src/services/storage.ts` (`put`, `get`, `delete`); the default `LocalDiskStore` writes to `UPLOAD_DIR`. To use S3 or MinIO later, add one class and change `getStore()`: the saved paths, pages and forms stay the same.
 - **Not done:** a photo that is replaced or removed stays on disk, and photos uploaded but never saved are not cleaned up. Local disk also assumes one server, or a shared volume, until the store is swapped.
 
 ## Rate Limiting
@@ -428,7 +428,7 @@ Counters live in Redis (one fixed window per key), so the limits hold across eve
 | Reset password | 20 / hour | caller address |
 | Any POST, PUT, PATCH, DELETE | 120 / minute | signed-in user |
 
-Reads are not limited. Load tests switch the limits off with `RATE_LIMIT_DISABLED=true` (see Load Testing). All numbers are in `src/lib/rateLimit.ts` (`LIMITS`). The caller address comes from `X-Forwarded-For`, so run the app behind a proxy or load balancer that sets it.
+Reads are not limited. Load tests switch the limits off with `RATE_LIMIT_DISABLED=true` (see Load Testing). All numbers are in `src/services/rateLimit.ts` (`LIMITS`). The caller address comes from `X-Forwarded-For`, so run the app behind a proxy or load balancer that sets it.
 
 ## Load Testing
 

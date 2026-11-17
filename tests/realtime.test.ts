@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { publishNotificationsCreated, subscribeToNotifications, resetRealtimeForTests } from "@/lib/realtime";
-import { openNotificationStream, MAX_STREAMS_PER_USER, openStreamCount } from "@/lib/sse";
+import { publishNotificationsCreated, subscribeToNotifications, resetRealtimeForTests } from "@/services/realtime";
+import { openNotificationStream, MAX_STREAMS_PER_USER, openStreamCount } from "@/services/sse";
 
 beforeEach(() => resetRealtimeForTests());
 

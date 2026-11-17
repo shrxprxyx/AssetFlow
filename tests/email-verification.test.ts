@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import bcrypt from "bcryptjs";
 
-vi.mock("@/lib/mailer", () => ({
+vi.mock("@/services/mailer", () => ({
   deliverEmail: vi.fn(async () => undefined),
   sendMail: vi.fn(async () => undefined),
 }));
@@ -11,10 +11,10 @@ import { POST as verify } from "@/app/api/auth/verify-email/route";
 import { POST as resend } from "@/app/api/auth/resend-verification/route";
 import { POST as resetPasswordRoute } from "@/app/api/auth/reset-password/route";
 import { POST as forgotPassword } from "@/app/api/auth/forgot-password/route";
-import { deliverEmail } from "@/lib/mailer";
-import { hashToken } from "@/lib/passwordReset";
-import { checkCredentials } from "@/lib/credentials";
-import { prisma } from "@/lib/prisma";
+import { deliverEmail } from "@/services/mailer";
+import { hashToken } from "@/services/passwordReset";
+import { checkCredentials } from "@/services/credentials";
+import { prisma } from "@/services/prisma";
 import { resetDb } from "./helpers/db";
 import { call } from "./helpers/http";
 

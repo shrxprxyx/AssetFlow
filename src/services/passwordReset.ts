@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { prisma, Prisma } from "@/lib/prisma";
-import { findUserByEmail } from "@/lib/userLookup";
-import { deliverEmail } from "@/lib/mailer";
-import { logActivity } from "@/lib/logActivity";
+import { prisma, Prisma } from "@/services/prisma";
+import { findUserByEmail } from "@/services/userLookup";
+import { deliverEmail } from "@/services/mailer";
+import { logActivity } from "@/services/logActivity";
 
 export const RESET_TOKEN_TTL_MINUTES = 30;
 // One reset email per account per minute, so the form can't be used to flood an inbox.

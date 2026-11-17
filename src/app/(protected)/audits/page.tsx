@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 import { Pager } from "@/components/pager";
 import { Plus, ClipboardCheck, AlertTriangle } from "lucide-react";
 

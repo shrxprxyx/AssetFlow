@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
-import { assetLink } from "@/lib/qr";
+import { assetLink } from "@/utils/qr";
 
 type Props = {
   asset: { assetTag: string; name: string; location?: string | null };

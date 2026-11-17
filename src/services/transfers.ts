@@ -106,7 +106,7 @@ export type CreatedTransfer = {
 export async function createTransferRequest(
   actor: Actor,
   input: { assetId: number; toHolderId: number; reason?: string },
-  /** Recorded in the same transaction as the request (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the request (see services/outbox.ts). */
   activity?: ActivityFor<CreatedTransfer>
 ) {
   let eventId: number | undefined;
@@ -192,7 +192,7 @@ export async function createTransferRequest(
 export async function approveTransfer(
   actor: Actor,
   requestId: number,
-  /** Recorded in the same transaction as the approval (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the approval (see services/outbox.ts). */
   activity?: ActivitySpec
 ) {
   let eventId: number | undefined;
@@ -263,7 +263,7 @@ export async function approveTransfer(
 export async function rejectTransfer(
   actor: Actor,
   requestId: number,
-  /** Recorded in the same transaction as the rejection (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the rejection (see services/outbox.ts). */
   activity?: ActivitySpec
 ) {
   const request = await prisma.transferRequest.findUnique({ where: { id: requestId } });
@@ -301,7 +301,7 @@ export async function rejectTransfer(
 export async function cancelTransfer(
   actor: Actor,
   requestId: number,
-  /** Recorded in the same transaction as the cancellation (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the cancellation (see services/outbox.ts). */
   activity?: ActivitySpec
 ) {
   const request = await prisma.transferRequest.findUnique({ where: { id: requestId } });

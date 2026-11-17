@@ -7,7 +7,7 @@ import { POST as createAsset } from "@/app/api/assets/route";
 import { GET as listAssets } from "@/app/api/assets/route";
 import { resetDb, createUser } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
-import { LIMITS } from "@/lib/rateLimit";
+import { LIMITS } from "@/services/rateLimit";
 
 function post(url: string, body: unknown, ip = "203.0.113.1") {
   return new NextRequest(`http://localhost${url}`, {

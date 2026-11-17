@@ -1,9 +1,9 @@
-import { prisma } from '@/lib/prisma';
-import { CreateAllocationSchema } from '@/lib/schemas';
-import { allocateAsset } from '@/lib/allocations';
-import { requireAuth, requireWriteAuth } from '@/lib/guards';
-import { readJson, validationError } from '@/lib/http';
-import { parsePagination, paginated } from '@/lib/pagination';
+import { prisma } from '@/services/prisma';
+import { CreateAllocationSchema } from '@/utils/schemas';
+import { allocateAsset } from '@/services/allocations';
+import { requireAuth, requireWriteAuth } from '@/services/guards';
+import { readJson, validationError } from '@/utils/http';
+import { parsePagination, paginated } from '@/utils/pagination';
 import { NextRequest, NextResponse } from 'next/server';
 import { AllocationStatus, Prisma } from '@prisma/client';
 
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
     data.holderType,
     data.expectedReturnDate,
     actorId,
-    // Recorded in the allocation's own transaction (see lib/outbox.ts).
+    // Recorded in the allocation's own transaction (see services/outbox.ts).
     {
       action: 'asset_allocated',
       actorId,

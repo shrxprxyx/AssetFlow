@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scopeWhere, FLAGGED_STATUSES, discrepancyIsOpen } from "@/lib/auditScope";
+import { scopeWhere, FLAGGED_STATUSES, discrepancyIsOpen } from "@/utils/auditScope";
 
 describe("scopeWhere (which assets a cycle covers)", () => {
   it("ALL covers every asset", () => {

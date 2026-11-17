@@ -30,7 +30,7 @@ export async function raiseMaintenanceRequest(
   description: string,
   priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
   photoUrl?: string,
-  /** Recorded in the same transaction as the request (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the request (see services/outbox.ts). */
   activity?: ActivityFor<MaintenanceRequest>
 ) {
   const asset = await prisma.asset.findUnique({ where: { id: assetId }, select: { status: true } });
@@ -57,7 +57,7 @@ export async function raiseMaintenanceRequest(
 export async function approveMaintenanceRequest(
   id: number,
   approverId: number,
-  /** Recorded in the same transaction as the approval (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the approval (see services/outbox.ts). */
   activity?: ActivityFor<MaintenanceRequest>
 ) {
   let eventId: number | undefined;
@@ -113,7 +113,7 @@ export async function approveMaintenanceRequest(
 export async function rejectMaintenanceRequest(
   id: number,
   approverId: number,
-  /** Recorded in the same transaction as the rejection (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the rejection (see services/outbox.ts). */
   activity?: ActivitySpec
 ) {
   const request = await prisma.maintenanceRequest.findUnique({ where: { id } });
@@ -143,7 +143,7 @@ export async function rejectMaintenanceRequest(
 export async function assignTechnician(
   id: number,
   technicianId: number,
-  /** Recorded in the same transaction as the assignment (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the assignment (see services/outbox.ts). */
   activity?: ActivitySpec
 ) {
   const request = await prisma.maintenanceRequest.findUnique({ where: { id } });
@@ -180,7 +180,7 @@ export async function assignTechnician(
 // ── Start work: APPROVED (+ technician assigned) -> IN_PROGRESS ──
 export async function startMaintenanceRequest(
   id: number,
-  /** Recorded in the same transaction as the start (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the start (see services/outbox.ts). */
   activity?: ActivitySpec
 ) {
   const request = await prisma.maintenanceRequest.findUnique({ where: { id } });
@@ -214,7 +214,7 @@ export async function resolveMaintenanceRequest(
   id: number,
   resolverId: number,
   resolutionNotes?: string,
-  /** Recorded in the same transaction as the resolution (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the resolution (see services/outbox.ts). */
   activity?: ActivityFor<MaintenanceRequest>
 ) {
   let eventId: number | undefined;

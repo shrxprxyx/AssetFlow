@@ -72,7 +72,7 @@ export async function createBooking(
   startTime: Date,
   endTime: Date,
   purpose?: string,
-  /** Recorded in the same transaction as the booking (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the booking (see services/outbox.ts). */
   activity?: ActivityFor<ResourceBooking>
 ) {
   checkWindow(startTime, endTime);
@@ -148,7 +148,7 @@ export type BookingActor = { userId: number; role: string };
 export async function cancelBookingAs(
   actor: BookingActor,
   bookingId: number,
-  /** Recorded in the same transaction as the cancellation (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the cancellation (see services/outbox.ts). */
   activity?: ActivityFor<ResourceBooking>
 ) {
   const booking = await prisma.resourceBooking.findUnique({ where: { id: bookingId } });
@@ -196,7 +196,7 @@ export async function rescheduleBookingAs(
   startTime: Date,
   endTime: Date,
   purpose?: string,
-  /** Recorded in the same transaction as the change (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the change (see services/outbox.ts). */
   activity?: ActivityFor<ResourceBooking & { previousStartTime: Date; previousEndTime: Date }>
 ) {
   const first = await prisma.resourceBooking.findUnique({ where: { id: bookingId } });

@@ -10,8 +10,8 @@ import {
   mimeForFileName,
   newFileName,
   FILE_NAME_RE,
-} from "@/lib/imageUpload";
-import { LocalDiskStore } from "@/lib/storage";
+} from "@/utils/imageUpload";
+import { LocalDiskStore } from "@/services/storage";
 
 const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46]);
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/guards";
-import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/services/guards";
+import { prisma } from "@/services/prisma";
 
 // Returns the signed-in user's current role and status from the database.
 // requireAuth returns 401 when the account is inactive or missing, which the

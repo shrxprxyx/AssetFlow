@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState } from "@/components/ui";
 import { Pager } from "@/components/pager";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 
 // ── Types ──────────────────────────────────────────────
 

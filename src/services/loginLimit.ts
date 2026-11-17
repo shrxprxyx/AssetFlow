@@ -1,4 +1,4 @@
-import { LIMITS, rateLimit, resetRateLimit, type RateLimitResult } from "@/lib/rateLimit";
+import { LIMITS, rateLimit, resetRateLimit, type RateLimitResult } from "@/services/rateLimit";
 
 export const LOGIN_EMAIL_RULE = LIMITS.loginEmail;
 export const LOGIN_IP_RULE = LIMITS.loginIp;

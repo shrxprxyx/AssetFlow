@@ -1,5 +1,5 @@
-import { prisma, Prisma } from "@/lib/prisma";
-import { publishNotificationsCreated } from "@/lib/realtime";
+import { prisma, Prisma } from "@/services/prisma";
+import { publishNotificationsCreated } from "@/services/realtime";
 
 type ActivityOptions = {
   actorId?: number | null;

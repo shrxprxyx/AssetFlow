@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { handleEventJob, recordActivity, relayPending } from "@/lib/outbox";
+import { handleEventJob, recordActivity, relayPending } from "@/services/outbox";
 import { DEFAULT_SCHEDULE } from "../worker/runtime";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 
 describe("outbox in the worker", () => {

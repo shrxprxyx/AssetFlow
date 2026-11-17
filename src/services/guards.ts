@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
-import { LIMITS, rateLimit, tooManyRequests } from "@/lib/rateLimit";
+import { prisma } from "@/services/prisma";
+import { LIMITS, rateLimit, tooManyRequests } from "@/services/rateLimit";
 
 export type Role = "ADMIN" | "ASSET_MANAGER" | "DEPARTMENT_HEAD" | "EMPLOYEE";
 

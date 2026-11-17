@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { auditFindingSchema } from "@/lib/schemas";
-import { recordActivity, dispatchActivity } from "@/lib/outbox";
-import { requireWriteAuth } from "@/lib/guards";
-import { isAssetInScope, isAssignedAuditor } from "@/lib/audits";
-import { readJson, validationError } from "@/lib/http";
+import { prisma } from "@/services/prisma";
+import { auditFindingSchema } from "@/utils/schemas";
+import { recordActivity, dispatchActivity } from "@/services/outbox";
+import { requireWriteAuth } from "@/services/guards";
+import { isAssetInScope, isAssignedAuditor } from "@/services/audits";
+import { readJson, validationError } from "@/utils/http";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -81,7 +81,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         : {}),
     },
     });
-    // The event commits with the finding (see lib/outbox.ts).
+    // The event commits with the finding (see services/outbox.ts).
     eventId = await recordActivity(tx, "audit_finding_recorded", {
       actorId: auditorId,
       resourceType: "AuditFinding",

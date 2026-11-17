@@ -5,8 +5,8 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { AuthShell } from "@/components/auth-shell";
 import { LoginForm } from "@/components/auth-forms";
-import type { LoginInput } from "@/lib/schemas";
-import { safeNextPath } from "@/lib/qr";
+import type { LoginInput } from "@/utils/schemas";
+import { safeNextPath } from "@/utils/qr";
 
 export default function LoginPage() {
   const router = useRouter();

@@ -1,7 +1,7 @@
-import { prisma } from '@/lib/prisma';
-import { ReturnAssetSchema } from '@/lib/schemas';
-import { returnAsset } from '@/lib/allocations';
-import { requireWriteAuth } from '@/lib/guards';
+import { prisma } from '@/services/prisma';
+import { ReturnAssetSchema } from '@/utils/schemas';
+import { returnAsset } from '@/services/allocations';
+import { requireWriteAuth } from '@/services/guards';
 import { NextRequest, NextResponse } from 'next/server';
 
 // Mark an allocation returned + capture the condition check-in.

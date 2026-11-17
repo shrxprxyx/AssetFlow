@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState } from "@/components/ui";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 import { Pager } from "@/components/pager";
 import { SearchSelect } from "@/components/search-select";
 

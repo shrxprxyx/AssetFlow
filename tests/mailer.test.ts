@@ -4,7 +4,7 @@ const sendMailFn = vi.fn(async () => ({}));
 const createTransport = vi.fn(() => ({ sendMail: sendMailFn }));
 vi.mock("nodemailer", () => ({ createTransport }));
 
-import { readSmtpConfig, sendMail } from "@/lib/mailer";
+import { readSmtpConfig, sendMail } from "@/services/mailer";
 
 const SMTP_KEYS = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "MAIL_FROM"] as const;
 const saved: Record<string, string | undefined> = {};

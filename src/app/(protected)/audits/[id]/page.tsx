@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 import { ArrowLeft, CheckCircle2, HelpCircle, AlertTriangle, XCircle, Lock, UserPlus, X } from "lucide-react";
 
 type FindingStatus = "VERIFIED" | "MISSING" | "DAMAGED";

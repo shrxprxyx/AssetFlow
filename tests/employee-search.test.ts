@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { GET as listEmployees } from "@/app/api/employees/route";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
 import { call } from "./helpers/http";

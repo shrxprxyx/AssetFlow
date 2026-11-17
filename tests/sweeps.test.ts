@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { runOverdueSweep, runBookingTick } from "@/lib/sweeps";
-import { cancelBookingAs } from "@/lib/bookings";
-import { changeAssetStatus } from "@/lib/assetLifecycle";
-import { prisma } from "@/lib/prisma";
+import { runOverdueSweep, runBookingTick } from "@/services/sweeps";
+import { cancelBookingAs } from "@/services/bookings";
+import { changeAssetStatus } from "@/services/assetLifecycle";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset, createDepartment } from "./helpers/db";
 
 const MIN = 60_000;

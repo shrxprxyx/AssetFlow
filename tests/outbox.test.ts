@@ -2,26 +2,26 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Wraps the real notification code in spies, so a test can make it fail once
 // and everything else still runs against the real thing.
-vi.mock("@/lib/notifications", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/notifications")>();
+vi.mock("@/services/notifications", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/notifications")>();
   return { ...actual, createNotificationsFor: vi.fn(actual.createNotificationsFor) };
 });
-vi.mock("@/lib/realtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/realtime")>();
+vi.mock("@/services/realtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/realtime")>();
   return { ...actual, publishNotificationsCreated: vi.fn(actual.publishNotificationsCreated) };
 });
 
-import { createNotificationsFor } from "@/lib/notifications";
-import { publishNotificationsCreated } from "@/lib/realtime";
+import { createNotificationsFor } from "@/services/notifications";
+import { publishNotificationsCreated } from "@/services/realtime";
 import {
   recordActivity,
   processActivityLog,
   dispatchActivity,
   relayPending,
   MAX_PROCESS_ATTEMPTS,
-} from "@/lib/outbox";
-import { logActivity } from "@/lib/logActivity";
-import { prisma } from "@/lib/prisma";
+} from "@/services/outbox";
+import { logActivity } from "@/services/logActivity";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 
 const notify = vi.mocked(createNotificationsFor);

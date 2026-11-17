@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { forgotPasswordSchema } from "@/lib/schemas";
-import { normalizeEmail } from "@/lib/userLookup";
-import { resendVerification } from "@/lib/emailVerification";
-import { readJson, validationError } from "@/lib/http";
-import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/lib/rateLimit";
+import { forgotPasswordSchema } from "@/utils/schemas";
+import { normalizeEmail } from "@/services/userLookup";
+import { resendVerification } from "@/services/emailVerification";
+import { readJson, validationError } from "@/utils/http";
+import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/services/rateLimit";
 
 // POST /api/auth/resend-verification  { email }
 // Public. Answers the same way whether or not the address has an account.

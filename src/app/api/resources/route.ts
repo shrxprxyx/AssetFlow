@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/guards";
+import { prisma } from "@/services/prisma";
+import { requireAuth } from "@/services/guards";
 
 // Bookable assets (rooms, vehicles, shared equipment) for the booking screen.
 // Resources that can't be booked right now (in maintenance, lost, retired or

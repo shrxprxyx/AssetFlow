@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { getAssetsInScope } from "@/lib/audits";
-import { requireAuth } from "@/lib/guards";
+import { prisma } from "@/services/prisma";
+import { getAssetsInScope } from "@/services/audits";
+import { requireAuth } from "@/services/guards";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireAuth("ADMIN", "ASSET_MANAGER", "DEPARTMENT_HEAD");

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireAuth, requireWriteAuth } from "@/lib/guards";
+import { prisma } from "@/services/prisma";
+import { requireAuth, requireWriteAuth } from "@/services/guards";
 
 export async function GET() {
   const guard = await requireAuth();

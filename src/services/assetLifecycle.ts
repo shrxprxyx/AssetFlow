@@ -47,7 +47,7 @@ export async function departmentProblem(
 export async function updateAsset(
   assetId: number,
   patch: AssetPatch,
-  /** Recorded in the same transaction as the edit (see lib/outbox.ts). */
+  /** Recorded in the same transaction as the edit (see services/outbox.ts). */
   activity?: ActivitySpec
 ) {
   let eventId: number | undefined;
@@ -152,7 +152,7 @@ export async function changeAssetStatus(
   actorId: number,
   reason?: string,
   /**
-   * Events to record in the same transaction as the change (see lib/outbox.ts),
+   * Events to record in the same transaction as the change (see services/outbox.ts),
    * built from its outcome: the status event, plus one per cancelled booking.
    */
   activities?: (outcome: StatusOutcome) => ActivitySpec[]

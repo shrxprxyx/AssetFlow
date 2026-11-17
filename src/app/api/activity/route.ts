@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/guards";
-import { parsePagination, paginated } from "@/lib/pagination";
+import { prisma } from "@/services/prisma";
+import { requireAuth } from "@/services/guards";
+import { parsePagination, paginated } from "@/utils/pagination";
 
 // The tabs on the Activity screen. Actions are stored in lower_snake_case.
 const CATEGORY_FILTERS: Record<string, Prisma.ActivityLogWhereInput> = {

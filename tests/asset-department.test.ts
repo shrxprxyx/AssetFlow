@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { GET as listAssets, POST as createAsset } from "@/app/api/assets/route";
 import { GET as getAsset, PATCH as patchAsset } from "@/app/api/assets/[id]/route";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createCategory, createDepartment } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
 import { call, jsonRequest } from "./helpers/http";

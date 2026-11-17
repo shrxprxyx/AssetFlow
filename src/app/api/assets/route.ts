@@ -1,12 +1,12 @@
-import { prisma, Prisma } from '@/lib/prisma';
-import { CreateAssetSchema } from '@/lib/schemas';
+import { prisma, Prisma } from '@/services/prisma';
+import { CreateAssetSchema } from '@/utils/schemas';
 import { NextRequest, NextResponse } from 'next/server';
 import { AssetStatus } from '@prisma/client';
-import { requireAuth, requireWriteAuth } from '@/lib/guards';
-import { readJson, validationError } from '@/lib/http';
-import { parsePagination, paginated } from '@/lib/pagination';
-import { nextAssetTag, syncAssetTagSequence } from '@/lib/assetTag';
-import { departmentProblem } from '@/lib/assetLifecycle';
+import { requireAuth, requireWriteAuth } from '@/services/guards';
+import { readJson, validationError } from '@/utils/http';
+import { parsePagination, paginated } from '@/utils/pagination';
+import { nextAssetTag, syncAssetTagSequence } from '@/services/assetTag';
+import { departmentProblem } from '@/services/assetLifecycle';
 
 const VALID_ASSET_STATUSES = Object.values(AssetStatus);
 const ci = (v: string) => ({ contains: v, mode: 'insensitive' as const });

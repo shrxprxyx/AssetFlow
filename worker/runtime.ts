@@ -7,7 +7,7 @@ import {
   redisUrl,
   type EventJobData,
   type EmailJobData,
-} from "../src/lib/queue";
+} from "../src/services/queue";
 
 export type WorkerHandlers = {
   /** Turn one activity event into notifications. */
@@ -23,7 +23,7 @@ export type ScheduleConfig = Record<string, number>; // job name -> run every N 
 export const DEFAULT_SCHEDULE: ScheduleConfig = {
   "overdue-sweep": 5 * 60_000,
   "booking-tick": 60_000,
-  // Safety net for events nothing else delivered (see lib/outbox.ts).
+  // Safety net for events nothing else delivered (see services/outbox.ts).
   "outbox-relay": 5_000,
 };
 

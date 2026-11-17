@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resetPasswordSchema } from "@/lib/schemas";
-import { resetPassword } from "@/lib/passwordReset";
-import { readJson, validationError } from "@/lib/http";
-import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/lib/rateLimit";
+import { resetPasswordSchema } from "@/utils/schemas";
+import { resetPassword } from "@/services/passwordReset";
+import { readJson, validationError } from "@/utils/http";
+import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/services/rateLimit";
 
 // POST /api/auth/reset-password  { token, password }
 // Public. The token from the emailed link is the proof of identity.

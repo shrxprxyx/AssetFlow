@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { listTransfers } from "@/lib/transfers";
-import { requireAuth } from "@/lib/guards";
-import { parsePagination, paginated } from "@/lib/pagination";
+import { listTransfers } from "@/services/transfers";
+import { requireAuth } from "@/services/guards";
+import { parsePagination, paginated } from "@/utils/pagination";
 
 // GET /api/transfers?status=PENDING|ALL&page=1&pageSize=25  (status defaults to ALL)
 // Each role only sees the requests it's involved in or responsible for.

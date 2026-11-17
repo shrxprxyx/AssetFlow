@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assetLink, tagFromScan, safeNextPath } from "@/lib/qr";
+import { assetLink, tagFromScan, safeNextPath } from "@/utils/qr";
 
 describe("assetLink", () => {
   it("builds the link a label holds", () => {

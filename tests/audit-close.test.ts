@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { POST as closeCycle } from "@/app/api/audit-cycles/[id]/close/route";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
 import { jsonRequest } from "./helpers/http";

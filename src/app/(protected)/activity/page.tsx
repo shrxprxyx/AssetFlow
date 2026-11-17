@@ -17,9 +17,9 @@ import {
   Badge,
 } from "@/components/ui";
 import { Pager } from "@/components/pager";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime } from "@/utils/utils";
 import { Clock } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 
 interface ActivityLog {
   id: number;

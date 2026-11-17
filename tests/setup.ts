@@ -1,5 +1,5 @@
 import { vi, beforeAll, beforeEach } from "vitest";
-import { resetRateLimitsForTests } from "@/lib/rateLimit";
+import { resetRateLimitsForTests } from "@/services/rateLimit";
 
 // Replace NextAuth: tests choose who is "signed in" with signInAs()/signOut().
 vi.mock("@/auth", () => ({

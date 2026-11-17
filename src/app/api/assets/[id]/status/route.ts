@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireWriteAuth } from "@/lib/guards";
-import { readJson, validationError } from "@/lib/http";
-import { changeAssetStatus } from "@/lib/assetLifecycle";
+import { requireWriteAuth } from "@/services/guards";
+import { readJson, validationError } from "@/utils/http";
+import { changeAssetStatus } from "@/services/assetLifecycle";
 
 const statusSchema = z.object({
   // ALLOCATED and UNDER_MAINTENANCE are managed by the allocation and
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { status, reason } = parsed.data;
 
   try {
-    // The events are recorded in the change's own transaction (see lib/outbox.ts).
+    // The events are recorded in the change's own transaction (see services/outbox.ts).
     const result = await changeAssetStatus(id, status, actorId, reason, (o) => [
       {
         action: "asset_status_changed",

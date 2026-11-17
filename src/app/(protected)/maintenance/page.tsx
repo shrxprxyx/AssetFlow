@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PhotoField } from "@/components/photo-field";
-import { cn } from "@/lib/utils";
+import { cn } from "@/utils/utils";
 
 type MaintenanceRequest = {
   id: number;

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { POST as allocate } from "@/app/api/allocations/route";
-import { returnAsset } from "@/lib/allocations";
-import { prisma } from "@/lib/prisma";
+import { returnAsset } from "@/services/allocations";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset, createDepartment } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
 import { call } from "./helpers/http";

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/guards";
-import { FLAGGED_STATUSES } from "@/lib/audits";
+import { prisma } from "@/services/prisma";
+import { requireAuth } from "@/services/guards";
+import { FLAGGED_STATUSES } from "@/services/audits";
 
 // GET /api/audit-cycles/:id/discrepancies
 // The discrepancy report: every asset an auditor flagged as Missing or Damaged,

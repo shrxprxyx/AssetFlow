@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cancelBookingAs, rescheduleBookingAs } from "@/lib/bookings";
-import { bookingRescheduleSchema } from "@/lib/schemas";
-import { requireWriteAuth } from "@/lib/guards";
-import { readJson, validationError } from "@/lib/http";
+import { cancelBookingAs, rescheduleBookingAs } from "@/services/bookings";
+import { bookingRescheduleSchema } from "@/utils/schemas";
+import { requireWriteAuth } from "@/services/guards";
+import { readJson, validationError } from "@/utils/http";
 
 // DELETE /api/bookings/:id  -> cancels the booking (it stays in the table as CANCELLED)
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

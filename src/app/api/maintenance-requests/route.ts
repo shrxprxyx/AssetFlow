@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { maintenanceRequestSchema } from "@/lib/schemas";
-import { raiseMaintenanceRequest } from "@/lib/maintenance";
-import { prisma } from "@/lib/prisma";
-import { requireAuth, requireWriteAuth } from "@/lib/guards";
-import { readJson, validationError } from "@/lib/http";
-import { parsePagination, paginated } from "@/lib/pagination";
+import { maintenanceRequestSchema } from "@/utils/schemas";
+import { raiseMaintenanceRequest } from "@/services/maintenance";
+import { prisma } from "@/services/prisma";
+import { requireAuth, requireWriteAuth } from "@/services/guards";
+import { readJson, validationError } from "@/utils/http";
+import { parsePagination, paginated } from "@/utils/pagination";
 
 // GET /api/maintenance-requests?page=1&pageSize=25
 export async function GET(req: NextRequest) {
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
   const { assetId, description, priority, photoUrl } = parsed.data;
 
   try {
-    // The event is recorded with the request (see lib/outbox.ts).
+    // The event is recorded with the request (see services/outbox.ts).
     const request = await raiseMaintenanceRequest(assetId, requesterId, description, priority, photoUrl, (r) => ({
       action: "maintenance_raised",
       actorId: requesterId,

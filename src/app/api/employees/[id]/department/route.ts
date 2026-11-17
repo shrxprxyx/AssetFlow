@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { recordActivity, dispatchActivity } from "@/lib/outbox";
-import { requireWriteAuth } from "@/lib/guards";
+import { prisma } from "@/services/prisma";
+import { recordActivity, dispatchActivity } from "@/services/outbox";
+import { requireWriteAuth } from "@/services/guards";
 
 // Body: { departmentId: number | null }. Admin only.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
   }
 
-  // The event commits with the change (see lib/outbox.ts).
+  // The event commits with the change (see services/outbox.ts).
   let eventId = 0;
   const updated = await prisma.$transaction(async (tx) => {
     const saved = await tx.user.update({

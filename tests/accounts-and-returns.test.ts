@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { POST as signup } from "@/app/api/auth/signup/route";
-import { findUserByEmail, normalizeEmail } from "@/lib/userLookup";
-import * as allocations from "@/lib/allocations";
-import { allocateAsset, returnAsset } from "@/lib/allocations";
-import { prisma } from "@/lib/prisma";
+import { findUserByEmail, normalizeEmail } from "@/services/userLookup";
+import * as allocations from "@/services/allocations";
+import { allocateAsset, returnAsset } from "@/services/allocations";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 import { call } from "./helpers/http";
 

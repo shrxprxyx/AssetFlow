@@ -1,8 +1,8 @@
-import { prisma } from '@/lib/prisma';
-import { CreateDepartmentSchema, UpdateDepartmentSchema } from '@/lib/schemas';
+import { prisma } from '@/services/prisma';
+import { CreateDepartmentSchema, UpdateDepartmentSchema } from '@/utils/schemas';
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth, requireWriteAuth } from '@/lib/guards';
-import { readJson, validationError } from '@/lib/http';
+import { requireAuth, requireWriteAuth } from '@/services/guards';
+import { readJson, validationError } from '@/utils/http';
 
 const bad = (message: string, field?: string, status = 400) =>
   NextResponse.json({ error: 'validation_error', message, field }, { status });

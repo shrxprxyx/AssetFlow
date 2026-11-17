@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildHeatmap, isValidTimeZone, offsetMinutes, type Heatmap } from "@/lib/heatmap";
+import { buildHeatmap, isValidTimeZone, offsetMinutes, type Heatmap } from "@/utils/heatmap";
 
 // Wednesday 2030-01-16 12:00 UTC. The 7-day window is Wed 9 Jan .. Tue 15 Jan (local days).
 const NOW = new Date(Date.UTC(2030, 0, 16, 12, 0));

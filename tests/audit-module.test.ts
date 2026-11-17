@@ -6,7 +6,7 @@ import { PATCH as recordFinding } from "@/app/api/audit-cycles/[id]/findings/rou
 import { PATCH as resolveFinding } from "@/app/api/audit-cycles/[id]/findings/[findingId]/resolution/route";
 import { GET as discrepancies } from "@/app/api/audit-cycles/[id]/discrepancies/route";
 import { POST as closeCycle } from "@/app/api/audit-cycles/[id]/close/route";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset, createDepartment } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
 import { jsonRequest } from "./helpers/http";

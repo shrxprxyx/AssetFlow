@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { POST as book } from "@/app/api/bookings/route";
-import { cancelBooking } from "@/lib/bookings";
-import { prisma } from "@/lib/prisma";
+import { cancelBooking } from "@/services/bookings";
+import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
 import { call } from "./helpers/http";

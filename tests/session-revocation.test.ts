@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-vi.mock("@/lib/mailer", () => ({
+vi.mock("@/services/mailer", () => ({
   deliverEmail: vi.fn(async () => undefined),
   sendMail: vi.fn(async () => undefined),
 }));
@@ -10,8 +10,8 @@ import { POST as signOutEverywhere } from "@/app/api/account/sign-out-everywhere
 import { PATCH as setStatus } from "@/app/api/employees/[id]/status/route";
 import { POST as forgotPassword } from "@/app/api/auth/forgot-password/route";
 import { POST as resetPasswordRoute } from "@/app/api/auth/reset-password/route";
-import { deliverEmail } from "@/lib/mailer";
-import { prisma } from "@/lib/prisma";
+import { deliverEmail } from "@/services/mailer";
+import { prisma } from "@/services/prisma";
 import { auth } from "@/auth";
 import { resetDb, createUser } from "./helpers/db";
 import { signInAs } from "./helpers/auth";
