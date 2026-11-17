@@ -56,11 +56,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           { status: 403 }
         );
       }
-      const updated =
-        status === "APPROVED"
-          ? await approveMaintenanceRequest(id, actorId)
-          : await rejectMaintenanceRequest(id, actorId);
-      await logActivity(status === "APPROVED" ? "maintenance_approved" : "maintenance_rejected", {
+      if (status === "APPROVED") {
+        // Recorded in the approval's own transaction (see lib/outbox.ts).
+        const updated = await approveMaintenanceRequest(id, actorId, {
+          action: "maintenance_approved",
+          actorId,
+          resourceType: "MaintenanceRequest",
+          resourceId: id,
+        });
+        return NextResponse.json({ request: updated });
+      }
+      const updated = await rejectMaintenanceRequest(id, actorId);
+      await logActivity("maintenance_rejected", {
         actorId,
         resourceType: "MaintenanceRequest",
         resourceId: id,
@@ -115,8 +122,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         return NextResponse.json({ request: updated });
       }
 
-      const updated = await resolveMaintenanceRequest(id, actorId, resolutionNotes);
-      await logActivity("maintenance_resolved", {
+      const updated = await resolveMaintenanceRequest(id, actorId, resolutionNotes, {
+        action: "maintenance_resolved",
         actorId,
         resourceType: "MaintenanceRequest",
         resourceId: id,

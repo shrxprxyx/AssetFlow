@@ -6,10 +6,11 @@
  * It does two things:
  *   1. handles "who should be notified about this?" jobs that the web app queues,
  *      and sends the emails it queues (password reset links),
- *   2. runs the scheduled jobs: the overdue sweep (every 5 min) and the
- *      booking reminder / status tick (every minute).
+ *   2. runs the scheduled jobs: the overdue sweep (every 5 min), the
+ *      booking reminder / status tick (every minute) and the outbox relay
+ *      (every 5 s), which delivers events that never reached the queue.
  */
-import { notifyForActivity } from "../lib/notifications";
+import { handleEventJob, relayPending } from "../lib/outbox";
 import { sendMail } from "../lib/mailer";
 import { runOverdueSweep, runBookingTick } from "../lib/sweeps";
 import { prisma } from "../lib/prisma";
@@ -19,11 +20,12 @@ const log = (...args: unknown[]) => console.log(new Date().toISOString(), "[work
 
 async function main() {
   const workers = await startWorkers({
-    handleEvent: ({ action, options }) => notifyForActivity(action, options),
+    handleEvent: handleEventJob,
     handleEmail: (email) => sendMail(email),
     sweeps: {
       "overdue-sweep": () => runOverdueSweep(),
       "booking-tick": () => runBookingTick(),
+      "outbox-relay": () => relayPending(),
     },
   });
 
@@ -31,6 +33,8 @@ async function main() {
   for (const [name, run] of [
     ["booking-tick", runBookingTick],
     ["overdue-sweep", runOverdueSweep],
+    // At startup there is no fast path to wait for: deliver everything pending now.
+    ["outbox-relay", () => relayPending({ minAgeMs: 0 })],
   ] as const) {
     try {
       log(`startup ${name}:`, JSON.stringify(await run()));

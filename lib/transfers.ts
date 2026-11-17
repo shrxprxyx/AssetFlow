@@ -1,6 +1,7 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type TransferRequest } from "@prisma/client";
 import { prisma } from "./prisma";
 import type { Role } from "./guards";
+import { recordFor, dispatchActivity, type ActivityFor, type ActivitySpec } from "./outbox";
 
 /**
  * Transfer workflow:  Requested -> Approved/Rejected -> (if approved) re-allocated.
@@ -97,11 +98,19 @@ async function moveAsset(
 
 /* ───────────────────────────── create ───────────────────────────── */
 
+export type CreatedTransfer = {
+  request: TransferRequest;
+  autoApproved: boolean;
+};
+
 export async function createTransferRequest(
   actor: Actor,
-  input: { assetId: number; toHolderId: number; reason?: string }
+  input: { assetId: number; toHolderId: number; reason?: string },
+  /** Recorded in the same transaction as the request (see lib/outbox.ts). */
+  activity?: ActivityFor<CreatedTransfer>
 ) {
-  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  let eventId: number | undefined;
+  const created = await prisma.$transaction(async (tx: Prisma.TransactionClient): Promise<CreatedTransfer> => {
     await lockAsset(tx, input.assetId);
 
     const asset = await tx.asset.findUnique({ where: { id: input.assetId } });
@@ -156,7 +165,9 @@ export async function createTransferRequest(
     });
 
     if (!manager) {
-      return { request, autoApproved: false };
+      const pending = { request, autoApproved: false };
+      eventId = await recordFor(tx, activity, pending);
+      return pending;
     }
 
     await moveAsset(tx, {
@@ -168,13 +179,23 @@ export async function createTransferRequest(
       reason: input.reason,
     });
     const approved = await tx.transferRequest.findUniqueOrThrow({ where: { id: request.id } });
-    return { request: approved, autoApproved: true };
+    const done = { request: approved, autoApproved: true };
+    eventId = await recordFor(tx, activity, done);
+    return done;
   });
+  if (eventId) await dispatchActivity(eventId);
+  return created;
 }
 
 /* ───────────────────────────── approve ───────────────────────────── */
 
-export async function approveTransfer(actor: Actor, requestId: number) {
+export async function approveTransfer(
+  actor: Actor,
+  requestId: number,
+  /** Recorded in the same transaction as the approval (see lib/outbox.ts). */
+  activity?: ActivitySpec
+) {
+  let eventId: number | undefined;
   const outcome = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const first = await tx.transferRequest.findUnique({ where: { id: requestId } });
     if (!first) throw fail(404, "not_found", "Transfer request not found");
@@ -222,6 +243,7 @@ export async function approveTransfer(actor: Actor, requestId: number) {
       approverId: actor.userId,
       reason: request.reason,
     });
+    eventId = await recordFor(tx, activity, undefined);
     return { stale: false as const, allocation, assetId: request.assetId };
   });
 
@@ -232,6 +254,7 @@ export async function approveTransfer(actor: Actor, requestId: number) {
       "The asset's holder changed after this request was made, so the request was cancelled."
     );
   }
+  if (eventId) await dispatchActivity(eventId);
   return outcome;
 }
 

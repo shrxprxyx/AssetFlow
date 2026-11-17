@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma, Prisma } from "@/lib/prisma";
 import { publishNotificationsCreated } from "@/lib/realtime";
 
 type ActivityOptions = {
@@ -6,21 +6,25 @@ type ActivityOptions = {
   resourceType?: string;
   resourceId?: number;
   changes?: Record<string, unknown>;
+  /** The outbox event these notifications belong to (makes delivery idempotent). */
+  activityLogId?: number;
 };
 
 type Recipient = { userId: number; message: string };
 
-async function staffIds(excludeId?: number | null): Promise<number[]> {
-  const users = await prisma.user.findMany({
+type Db = Prisma.TransactionClient | typeof prisma;
+
+async function staffIds(db: Db, excludeId?: number | null): Promise<number[]> {
+  const users = await db.user.findMany({
     where: { role: { in: ["ADMIN", "ASSET_MANAGER"] }, status: "ACTIVE" },
     select: { id: true },
   });
   return users.map((u) => u.id).filter((id) => id !== excludeId);
 }
 
-async function assetLabel(assetId: number | null | undefined): Promise<string> {
+async function assetLabel(db: Db, assetId: number | null | undefined): Promise<string> {
   if (!assetId) return "An asset";
-  const asset = await prisma.asset.findUnique({
+  const asset = await db.asset.findUnique({
     where: { id: assetId },
     select: { assetTag: true, name: true },
   });
@@ -28,11 +32,18 @@ async function assetLabel(assetId: number | null | undefined): Promise<string> {
 }
 
 /**
- * Turns an activity event into notifications for the people it affects.
- * Called from logActivity() (inline) or from the background worker; never
- * throws to the caller in the inline case.
+ * Creates the notifications for one activity event using `db` (a transaction
+ * client, so the work holds ONE connection and commits together with whatever
+ * else is in that transaction) and returns the ids of the people notified.
+ * It does not tell open browser tabs: call publishNotificationsCreated() with
+ * the result AFTER the transaction has committed, or the tabs would reload
+ * before the rows are visible.
  */
-export async function notifyForActivity(action: string, opts: ActivityOptions) {
+export async function createNotificationsFor(
+  db: Db,
+  action: string,
+  opts: ActivityOptions
+): Promise<number[]> {
   const recipients: Recipient[] = [];
   const changes = opts.changes ?? {};
   const rid = opts.resourceId;
@@ -53,31 +64,31 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
   switch (action) {
     case "asset_allocated": {
       const holderId = changes.holderId as number | null | undefined;
-      add([holderId], `${await assetLabel(rid)} has been assigned to you.`);
+      add([holderId], `${await assetLabel(db, rid)} has been assigned to you.`);
       break;
     }
 
     // A transfer is waiting for a decision: tell the people who can decide it,
     // and the person who currently holds the asset.
     case "transfer_requested": {
-      const tr = rid ? await prisma.transferRequest.findUnique({ where: { id: rid } }) : null;
+      const tr = rid ? await db.transferRequest.findUnique({ where: { id: rid } }) : null;
       // Requests made by managers are approved on the spot and reported as
       // "transfer_completed" instead, so there is nothing to approve here.
       if (!tr || tr.status !== "PENDING") break;
 
-      const label = await assetLabel(tr.assetId);
+      const label = await assetLabel(db, tr.assetId);
       const holder = tr.fromHolderId
-        ? await prisma.user.findUnique({ where: { id: tr.fromHolderId }, select: { departmentId: true } })
+        ? await db.user.findUnique({ where: { id: tr.fromHolderId }, select: { departmentId: true } })
         : null;
       const deptHeads = holder?.departmentId
-        ? await prisma.user.findMany({
+        ? await db.user.findMany({
             where: { role: "DEPARTMENT_HEAD", status: "ACTIVE", departmentId: holder.departmentId },
             select: { id: true },
           })
         : [];
 
       const approvalMsg = `A transfer request for ${label} is waiting for your approval.`;
-      add(await staffIds(), approvalMsg, true);
+      add(await staffIds(db), approvalMsg, true);
       add(deptHeads.map((u) => u.id), approvalMsg, true);
       add([tr.fromHolderId], `Someone has requested a transfer of ${label}, which you currently hold.`, true);
       break;
@@ -85,18 +96,18 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
 
     // Manager-initiated transfers: done immediately.
     case "transfer_completed": {
-      const tr = rid ? await prisma.transferRequest.findUnique({ where: { id: rid } }) : null;
+      const tr = rid ? await db.transferRequest.findUnique({ where: { id: rid } }) : null;
       if (!tr) break;
-      const label = await assetLabel(tr.assetId);
+      const label = await assetLabel(db, tr.assetId);
       add([tr.toHolderId], `${label} has been transferred to you.`, true);
       add([tr.fromHolderId], `${label} was transferred away from you.`, true);
       break;
     }
 
     case "transfer_approved": {
-      const tr = rid ? await prisma.transferRequest.findUnique({ where: { id: rid } }) : null;
+      const tr = rid ? await db.transferRequest.findUnique({ where: { id: rid } }) : null;
       if (!tr) break;
-      const label = await assetLabel(tr.assetId);
+      const label = await assetLabel(db, tr.assetId);
       // Order matters: when the requester is also the new holder they get one
       // notification (the first), not two.
       add([tr.requestedBy], `Your transfer request for ${label} was approved.`, true);
@@ -107,15 +118,15 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
 
     case "transfer_rejected":
     case "transfer_cancelled": {
-      const tr = rid ? await prisma.transferRequest.findUnique({ where: { id: rid } }) : null;
+      const tr = rid ? await db.transferRequest.findUnique({ where: { id: rid } }) : null;
       if (!tr) break;
       const verb = action.replace("transfer_", "");
-      add([tr.requestedBy], `Your transfer request for ${await assetLabel(tr.assetId)} was ${verb}.`, true);
+      add([tr.requestedBy], `Your transfer request for ${await assetLabel(db, tr.assetId)} was ${verb}.`, true);
       break;
     }
 
     case "maintenance_raised": {
-      const ids = await staffIds(opts.actorId);
+      const ids = await staffIds(db, opts.actorId);
       add(ids, "A new maintenance request was raised.");
       break;
     }
@@ -123,7 +134,7 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
     case "maintenance_rejected":
     case "maintenance_in_progress":
     case "maintenance_resolved": {
-      const mr = rid ? await prisma.maintenanceRequest.findUnique({ where: { id: rid } }) : null;
+      const mr = rid ? await db.maintenanceRequest.findUnique({ where: { id: rid } }) : null;
       const messages: Record<string, string> = {
         maintenance_approved: "Your maintenance request was approved.",
         maintenance_rejected: "Your maintenance request was rejected.",
@@ -134,7 +145,7 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
       break;
     }
     case "maintenance_technician_assigned": {
-      const mr = rid ? await prisma.maintenanceRequest.findUnique({ where: { id: rid } }) : null;
+      const mr = rid ? await db.maintenanceRequest.findUnique({ where: { id: rid } }) : null;
       if (mr) add([mr.technicianId], "You were assigned a maintenance task.");
       break;
     }
@@ -146,7 +157,7 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
     // Sent by the scheduled booking job, shortly before a booking starts.
     case "booking_reminder": {
       const booking = rid
-        ? await prisma.resourceBooking.findUnique({
+        ? await db.resourceBooking.findUnique({
             where: { id: rid },
             include: { resource: { select: { name: true } } },
           })
@@ -158,13 +169,13 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
     // Sent by the scheduled overdue job: the holder, and the people who chase it up.
     case "allocation_overdue": {
       const allocation = rid
-        ? await prisma.allocation.findUnique({
+        ? await db.allocation.findUnique({
             where: { id: rid },
             include: { holder: { select: { firstName: true, lastName: true } } },
           })
         : null;
       if (!allocation) break;
-      const label = await assetLabel(allocation.assetId);
+      const label = await assetLabel(db, allocation.assetId);
       const due = allocation.expectedReturnDate
         ? allocation.expectedReturnDate.toISOString().slice(0, 10)
         : "its due date";
@@ -172,13 +183,13 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
         ? `${allocation.holder.firstName} ${allocation.holder.lastName}`
         : "a department";
       add([allocation.holderId], `${label} was due back on ${due} and is now overdue. Please return it.`);
-      add(await staffIds(), `${label} is overdue (held by ${holder}, due ${due}).`);
+      add(await staffIds(db), `${label} is overdue (held by ${holder}, due ${due}).`);
       break;
     }
 
     // Only matters when someone else (a manager) cancelled it.
     case "booking_cancelled": {
-      const booking = rid ? await prisma.resourceBooking.findUnique({ where: { id: rid } }) : null;
+      const booking = rid ? await db.resourceBooking.findUnique({ where: { id: rid } }) : null;
       if (booking) add([booking.bookerId], "Your resource booking was cancelled.", true);
       break;
     }
@@ -191,7 +202,7 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
 
     case "audit_finding_recorded": {
       if (changes.status && changes.status !== "VERIFIED") {
-        add(await staffIds(opts.actorId), "An audit discrepancy was flagged.");
+        add(await staffIds(db, opts.actorId), "An audit discrepancy was flagged.");
       }
       break;
     }
@@ -202,7 +213,7 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
     }
 
     default:
-      return;
+      return [];
   }
 
   // One notification per person per event, even if they fall into several groups.
@@ -213,19 +224,31 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
     return true;
   });
 
-  if (unique.length === 0) return;
+  if (unique.length === 0) return [];
 
-  await prisma.notification.createMany({
+  await db.notification.createMany({
     data: unique.map((r) => ({
       userId: r.userId,
       type: action,
       message: r.message,
       relatedResourceType: opts.resourceType ?? null,
       relatedResourceId: opts.resourceId ?? null,
+      activityLogId: opts.activityLogId ?? null,
     })),
+    // With an activityLogId, (event, user, type) is unique: running the same
+    // event twice must not notify anyone twice.
+    skipDuplicates: true,
   });
 
-  // Tell any open browser tabs, so the bell updates now instead of at the next
-  // refresh. Never throws: the notifications are already saved.
-  await publishNotificationsCreated(unique.map((r) => r.userId));
+  return unique.map((r) => r.userId);
+}
+
+/**
+ * Creates the notifications for one event and tells open browser tabs.
+ * Used for jobs that have no outbox row (queued before the outbox existed).
+ */
+export async function notifyForActivity(action: string, opts: ActivityOptions) {
+  const userIds = await createNotificationsFor(prisma, action, opts);
+  // Never throws: the notifications are already saved.
+  await publishNotificationsCreated(userIds);
 }

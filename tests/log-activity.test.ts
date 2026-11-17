@@ -34,7 +34,7 @@ describe("logActivity and the queue", () => {
 
     await logActivity("asset_allocated", options);
 
-    expect(queue).toHaveBeenCalledWith("asset_allocated", options);
+    expect(queue).toHaveBeenCalledWith("asset_allocated", options, expect.any(Number));
     expect(await prisma.activityLog.count({ where: { action: "asset_allocated" } })).toBe(1);
     expect(await prisma.notification.count()).toBe(0);
   });

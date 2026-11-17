@@ -1,7 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { ReturnAssetSchema } from '@/lib/schemas';
 import { returnAsset } from '@/lib/allocations';
-import { logActivity } from '@/lib/logActivity';
 import { requireWriteAuth } from '@/lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -47,18 +46,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const body = await req.json();
     const data = ReturnAssetSchema.parse(body);
 
-    const result = await returnAsset(allocationId, data.condition, data.returnNotes, user.userId);
-
-    if (!result.success) {
-      return NextResponse.json({ error: result.error }, { status: 400 });
-    }
-
-    await logActivity('asset_returned', {
+    const result = await returnAsset(allocationId, data.condition, data.returnNotes, user.userId, {
+      action: 'asset_returned',
       actorId: user.userId,
       resourceType: 'Allocation',
       resourceId: allocationId,
       changes: { condition: data.condition },
     });
+
+    if (!result.success) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
 
     return NextResponse.json(
       { success: true, allocation: result.allocation },

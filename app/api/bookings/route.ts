@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bookingSchema } from "@/lib/schemas";
 import { createBooking, getBookingsForResource } from "@/lib/bookings";
-import { logActivity } from "@/lib/logActivity";
 import { requireAuth, requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
 
@@ -44,12 +43,12 @@ export async function POST(req: NextRequest) {
   const { resourceId, startTime, endTime, purpose } = parsed.data;
 
   try {
-    const booking = await createBooking(resourceId, bookerId, startTime, endTime, purpose);
-    await logActivity("booking_confirmed", {
+    const booking = await createBooking(resourceId, bookerId, startTime, endTime, purpose, (b) => ({
+      action: "booking_confirmed",
       actorId: bookerId,
       resourceType: "ResourceBooking",
-      resourceId: booking.id,
-    });
+      resourceId: b.id,
+    }));
     return NextResponse.json({ booking }, { status: 201 });
   } catch (e: any) {
     // createBooking throws { status, body } for expected failures

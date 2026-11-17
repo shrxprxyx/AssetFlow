@@ -396,11 +396,14 @@ model Notification {
   isRead              Boolean   @default(false)
   createdAt           DateTime  @default(now())
   readAt              DateTime?
+  /// The activity event this came from; with userId and type it makes delivery idempotent.
+  activityLogId       Int?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
   @@index([createdAt])
+  @@unique([activityLogId, userId, type])
 }
 
 model ActivityLog {
@@ -411,6 +414,10 @@ model ActivityLog {
   resourceId   Int?
   changes      String?
   timestamp    DateTime @default(now())
+  /// Outbox: set once this event's notifications have been created.
+  processedAt     DateTime?
+  /// Outbox: failed delivery attempts; the relay stops retrying at 5.
+  processAttempts Int       @default(0)
 
   actor User? @relation(fields: [actorId], references: [id])
 
@@ -418,4 +425,5 @@ model ActivityLog {
   @@index([resourceType, resourceId])
   @@index([timestamp])
   @@index([actorId, timestamp])
+  @@index([processedAt, id])
 }

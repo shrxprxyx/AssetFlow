@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TransferAssetSchema } from "@/lib/schemas";
 import { createTransferRequest } from "@/lib/transfers";
-import { logActivity } from "@/lib/logActivity";
 import { requireWriteAuth } from "@/lib/guards";
 
 // Creates a transfer REQUEST. The asset doesn't move until it's approved
@@ -32,14 +31,14 @@ export async function POST(req: NextRequest) {
   const { assetId, toHolderId, reason } = parsed.data;
 
   try {
-    const result = await createTransferRequest(user, { assetId, toHolderId, reason });
-
-    await logActivity(result.autoApproved ? "transfer_completed" : "transfer_requested", {
+    // The event is recorded in the request's own transaction (see lib/outbox.ts).
+    const result = await createTransferRequest(user, { assetId, toHolderId, reason }, (r) => ({
+      action: r.autoApproved ? "transfer_completed" : "transfer_requested",
       actorId: user.userId,
       resourceType: "TransferRequest",
-      resourceId: result.request.id,
+      resourceId: r.request.id,
       changes: { assetId, toHolderId },
-    });
+    }));
 
     return NextResponse.json(
       {

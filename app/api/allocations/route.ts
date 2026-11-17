@@ -1,7 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { CreateAllocationSchema } from '@/lib/schemas';
 import { allocateAsset } from '@/lib/allocations';
-import { logActivity } from '@/lib/logActivity';
 import { requireAuth, requireWriteAuth } from '@/lib/guards';
 import { readJson, validationError } from '@/lib/http';
 import { parsePagination, paginated } from '@/lib/pagination';
@@ -67,7 +66,15 @@ export async function POST(req: NextRequest) {
     data.holderType === 'DEPARTMENT' ? data.holderDeptId! : null,
     data.holderType,
     data.expectedReturnDate,
-    actorId
+    actorId,
+    // Recorded in the allocation's own transaction (see lib/outbox.ts).
+    {
+      action: 'asset_allocated',
+      actorId,
+      resourceType: 'Asset',
+      resourceId: data.assetId,
+      changes: { holderId: data.holderId ?? null, holderDeptId: data.holderDeptId ?? null },
+    }
   );
 
   if (!result.success) {
@@ -83,18 +90,6 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json({ error: result.error, message: result.error }, { status: 400 });
-  }
-
-  // The allocation is already committed; a logging failure must not report it as failed.
-  try {
-    await logActivity('asset_allocated', {
-      actorId,
-      resourceType: 'Asset',
-      resourceId: data.assetId,
-      changes: { holderId: data.holderId ?? null, holderDeptId: data.holderDeptId ?? null },
-    });
-  } catch (err) {
-    console.error('activity log failed for asset_allocated', err);
   }
 
   return NextResponse.json(result.allocation, { status: 201 });

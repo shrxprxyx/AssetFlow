@@ -1,4 +1,6 @@
 import { prisma, Prisma } from "./prisma";
+import type { MaintenanceRequest } from "@prisma/client";
+import { recordFor, dispatchActivity, type ActivityFor } from "./outbox";
 
 type HttpError = { status: number; body: Record<string, unknown> };
 const fail = (status: number, error: string, message: string, field?: string): HttpError => ({
@@ -43,8 +45,14 @@ export async function raiseMaintenanceRequest(
 }
 
 // ── Approve: PENDING -> APPROVED, asset -> UNDER_MAINTENANCE ──
-export async function approveMaintenanceRequest(id: number, approverId: number) {
-  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+export async function approveMaintenanceRequest(
+  id: number,
+  approverId: number,
+  /** Recorded in the same transaction as the approval (see lib/outbox.ts). */
+  activity?: ActivityFor<MaintenanceRequest>
+) {
+  let eventId: number | undefined;
+  const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const first = await tx.maintenanceRequest.findUnique({ where: { id } });
     if (!first) throw notFound();
 
@@ -84,8 +92,12 @@ export async function approveMaintenanceRequest(id: number, approverId: number) 
       });
     }
 
+    eventId = await recordFor(tx, activity, updated);
     return updated;
   });
+  // After the commit. Never throws: if it can't reach the queue, the relay delivers it.
+  if (eventId) await dispatchActivity(eventId);
+  return result;
 }
 
 // ── Reject: PENDING -> REJECTED (asset untouched) ───────
@@ -157,8 +169,15 @@ export async function startMaintenanceRequest(id: number) {
 }
 
 // ── Resolve: IN_PROGRESS -> RESOLVED, asset back in service ──
-export async function resolveMaintenanceRequest(id: number, resolverId: number, resolutionNotes?: string) {
-  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+export async function resolveMaintenanceRequest(
+  id: number,
+  resolverId: number,
+  resolutionNotes?: string,
+  /** Recorded in the same transaction as the resolution (see lib/outbox.ts). */
+  activity?: ActivityFor<MaintenanceRequest>
+) {
+  let eventId: number | undefined;
+  const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const first = await tx.maintenanceRequest.findUnique({ where: { id } });
     if (!first) throw notFound();
 
@@ -190,6 +209,7 @@ export async function resolveMaintenanceRequest(id: number, resolverId: number, 
     // Only bring the asset back if it is actually still UNDER_MAINTENANCE.
     // If it was marked LOST / RETIRED meanwhile, resolving must not resurrect it.
     if (stillOpen > 0 || !asset || asset.status !== "UNDER_MAINTENANCE") {
+      eventId = await recordFor(tx, activity, updated);
       return updated;
     }
 
@@ -211,6 +231,10 @@ export async function resolveMaintenanceRequest(id: number, resolverId: number, 
       },
     });
 
+    eventId = await recordFor(tx, activity, updated);
     return updated;
   });
+  // After the commit. Never throws: if it can't reach the queue, the relay delivers it.
+  if (eventId) await dispatchActivity(eventId);
+  return result;
 }

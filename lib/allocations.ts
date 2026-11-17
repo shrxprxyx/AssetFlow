@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { Prisma } from "@prisma/client";
+import { recordFor, dispatchActivity, type ActivityFor } from "./outbox";
 
 /* =====================================================
    Existing interfaces (KEEP)
@@ -130,10 +131,12 @@ export async function allocateAsset(
   holderDeptId: number | null,
   holderType: "EMPLOYEE" | "DEPARTMENT",
   expectedReturnDate: Date | undefined,
-  actorId: number
+  actorId: number,
+  activity?: ActivityFor<Allocation>
 ): Promise<AllocationResult> {
+  let eventId: number | undefined;
   try {
-    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await lockAsset(tx, assetId);
 
       const asset = await tx.asset.findUnique({
@@ -214,11 +217,16 @@ export async function allocateAsset(
         },
       });
 
+      // Same transaction as the allocation: both exist, or neither does.
+      eventId = await recordFor(tx, activity, allocation);
+
       return {
         success: true,
         allocation,
       };
     });
+    if (eventId) await dispatchActivity(eventId);
+    return result;
   } catch (err) {
     // The partial unique index rejected a concurrent duplicate. Report it the
     // same way as the normal pre-check conflict so the UI shows "held by X".
@@ -244,10 +252,12 @@ export async function returnAsset(
   allocationId: number,
   condition: "GOOD" | "FAIR" | "POOR",
   returnNotes: string | undefined,
-  actorId: number
+  actorId: number,
+  activity?: ActivityFor<Allocation>
 ): Promise<AllocationResult> {
+  let eventId: number | undefined;
   try {
-    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const allocation = await tx.allocation.findUnique({
         where: {
           id: allocationId,
@@ -326,11 +336,15 @@ export async function returnAsset(
         where: { id: allocationId },
       });
 
+      eventId = await recordFor(tx, activity, updated);
+
       return {
         success: true,
         allocation: updated,
       };
     });
+    if (eventId) await dispatchActivity(eventId);
+    return result;
   } catch (err) {
     return {
       success: false,

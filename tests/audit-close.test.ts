@@ -160,3 +160,51 @@ describe("closing an audit cycle", () => {
     expect((await close(cycle.id)).status).toBe(200);
   });
 });
+
+describe("closing an audit cycle: events", () => {
+  let admin: Awaited<ReturnType<typeof createUser>>;
+
+  beforeEach(async () => {
+    await resetDb();
+    admin = await createUser({ role: "ADMIN" });
+    signInAs(admin);
+  });
+
+  it("records audit_cycle_closed and booking_cancelled together with the close", async () => {
+    const booker = await createUser();
+    const room = await createAsset({ isBookable: true });
+    await prisma.resourceBooking.create({
+      data: {
+        resourceId: room.id,
+        bookerId: booker.id,
+        startTime: new Date(Date.now() + 2 * HOUR),
+        endTime: new Date(Date.now() + 3 * HOUR),
+        status: "UPCOMING",
+      },
+    });
+    const cycle = await createCycle(admin.id);
+    await markMissing(cycle.id, room.id, admin.id);
+
+    expect((await close(cycle.id)).status).toBe(200);
+
+    const closed = await prisma.activityLog.findMany({ where: { action: "audit_cycle_closed" } });
+    const cancelled = await prisma.activityLog.findMany({ where: { action: "booking_cancelled" } });
+    expect(closed).toHaveLength(1);
+    expect(cancelled).toHaveLength(1);
+    expect([...closed, ...cancelled].every((e) => e.processedAt !== null)).toBe(true);
+    // the person whose booking was cancelled was told
+    expect((await prisma.notification.findMany()).map((n) => n.userId)).toContain(booker.id);
+  });
+
+  it("a refused close (undecided discrepancies) records no event", async () => {
+    const asset = await createAsset();
+    const cycle = await createCycle(admin.id);
+    await prisma.auditFinding.create({
+      data: { cycleId: cycle.id, assetId: asset.id, auditorId: admin.id, status: "MISSING", resolutionStatus: "PENDING" },
+    });
+
+    expect((await close(cycle.id)).status).toBe(409);
+
+    expect(await prisma.activityLog.count({ where: { action: "audit_cycle_closed" } })).toBe(0);
+  });
+});

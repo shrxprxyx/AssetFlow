@@ -8,6 +8,8 @@ export const EMAILS_QUEUE = "emails";
 export type EmailJobData = { to: string; subject: string; text: string };
 
 export type EventJobData = {
+  /** The ActivityLog row to deliver. Jobs queued before the outbox existed lack it. */
+  activityLogId?: number;
   action: string;
   options: {
     actorId?: number | null;
@@ -98,7 +100,8 @@ let redisDownUntil = 0;
  */
 export async function enqueueNotification(
   action: string,
-  options: EventJobData["options"]
+  options: EventJobData["options"],
+  activityLogId?: number
 ): Promise<boolean> {
   if (process.env.QUEUE_MODE === "inline") return false;
   if (Date.now() < redisDownUntil) return false;
@@ -110,7 +113,7 @@ export async function enqueueNotification(
       console.warn("[queue] Redis is not reachable - handling notifications inline for the next 10s");
       return false;
     }
-    await queue.add(action, { action, options });
+    await queue.add(action, { action, options, activityLogId });
     return true;
   } catch (err) {
     redisDownUntil = Date.now() + RETRY_REDIS_AFTER_MS;

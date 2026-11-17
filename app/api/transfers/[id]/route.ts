@@ -37,15 +37,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { action } = parsed.data;
 
   try {
-    if (action === "approve") await approveTransfer(user, requestId);
-    else if (action === "reject") await rejectTransfer(user, requestId);
-    else await cancelTransfer(user, requestId);
+    if (action === "approve") {
+      // The event is recorded in the approval's own transaction (see lib/outbox.ts).
+      await approveTransfer(user, requestId, {
+        action: "transfer_approved",
+        actorId: user.userId,
+        resourceType: "TransferRequest",
+        resourceId: requestId,
+      });
+    } else {
+      if (action === "reject") await rejectTransfer(user, requestId);
+      else await cancelTransfer(user, requestId);
 
-    await logActivity(`transfer_${action === "approve" ? "approved" : action === "reject" ? "rejected" : "cancelled"}`, {
-      actorId: user.userId,
-      resourceType: "TransferRequest",
-      resourceId: requestId,
-    });
+      await logActivity(`transfer_${action === "reject" ? "rejected" : "cancelled"}`, {
+        actorId: user.userId,
+        resourceType: "TransferRequest",
+        resourceId: requestId,
+      });
+    }
 
     return NextResponse.json({ success: true, action });
   } catch (e: any) {

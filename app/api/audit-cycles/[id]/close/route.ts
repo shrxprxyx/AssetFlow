@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireWriteAuth } from "@/lib/guards";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
-import { logActivity } from "@/lib/logActivity";
+import { recordActivity, dispatchActivity } from "@/lib/outbox";
 
 // Thrown inside the transaction when another request closed the cycle first.
 class AlreadyClosed extends Error {}
@@ -140,9 +140,37 @@ export async function POST(
 
       const closed = await tx.auditCycle.findUniqueOrThrow({ where: { id: cycleId } });
 
+      // The events are committed together with the close itself (see lib/outbox.ts):
+      // a closed cycle can't exist without its audit entry and notifications.
+      const discrepancyCount = missingFindings.length + damagedCount;
+      const eventIds: number[] = [];
+      eventIds.push(
+        await recordActivity(tx, "audit_cycle_closed", {
+          actorId: adminId,
+          resourceType: "AuditCycle",
+          resourceId: cycleId,
+          changes: {
+            discrepancyCount,
+            allocationsClosed,
+            bookingsCancelled: cancelledBookingIds.length,
+          },
+        })
+      );
+      // Tell the people whose bookings were cancelled (the notification skips the actor).
+      for (const bookingId of cancelledBookingIds) {
+        eventIds.push(
+          await recordActivity(tx, "booking_cancelled", {
+            actorId: adminId,
+            resourceType: "ResourceBooking",
+            resourceId: bookingId,
+          })
+        );
+      }
+
       return {
         cycle: closed,
-        discrepancyCount: missingFindings.length + damagedCount,
+        eventIds,
+        discrepancyCount,
         missingCount: missingFindings.length,
         damagedCount,
         allocationsClosed,
@@ -164,31 +192,11 @@ export async function POST(
     throw err;
   }
 
-  const { cancelledBookingIds, ...summary } = result;
+  const { cancelledBookingIds, eventIds, ...summary } = result;
 
-  // Everything is committed; a logging failure must not report the close as failed.
-  try {
-    await logActivity("audit_cycle_closed", {
-      actorId: adminId,
-      resourceType: "AuditCycle",
-      resourceId: cycleId,
-      changes: {
-        discrepancyCount: summary.discrepancyCount,
-        allocationsClosed: summary.allocationsClosed,
-        bookingsCancelled: cancelledBookingIds.length,
-      },
-    });
-    // Tell the people whose bookings were cancelled (the notification skips the actor).
-    for (const bookingId of cancelledBookingIds) {
-      await logActivity("booking_cancelled", {
-        actorId: adminId,
-        resourceType: "ResourceBooking",
-        resourceId: bookingId,
-      });
-    }
-  } catch (err) {
-    console.error("activity log failed for audit_cycle_closed", err);
-  }
+  // Everything is committed. Dispatching never throws; anything it can't hand
+  // over is delivered by the worker's relay.
+  for (const eventId of eventIds) await dispatchActivity(eventId);
 
   return NextResponse.json({ ...summary, cancelledBookings: cancelledBookingIds.length });
 }

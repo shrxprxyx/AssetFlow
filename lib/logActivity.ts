@@ -1,44 +1,18 @@
 import { prisma } from "@/lib/prisma";
-import { notifyForActivity } from "@/lib/notifications";
-import { enqueueNotification } from "@/lib/queue";
+import { recordActivity, dispatchActivity, type ActivityInput } from "@/lib/outbox";
 
-type LogActivityOptions = {
-  actorId?: number | null;
-  resourceType?: string;
-  resourceId?: number;
-  changes?: Record<string, unknown>;
-};
-
-export async function logActivity(action: string, options: LogActivityOptions = {}) {
-  // The audit trail is written straight away: it is cheap and must never be lost.
-  await prisma.activityLog.create({
-    data: {
-      actorId: options.actorId ?? null,
-      action,
-      resourceType: options.resourceType,
-      resourceId: options.resourceId,
-      changes: options.changes ? JSON.stringify(options.changes) : null,
-    },
-  });
-
-  // Working out who to notify, and writing those notifications, is handed to the
-  // worker process so the request that triggered it doesn't wait for it.
-  let queued = false;
-  try {
-    queued = await enqueueNotification(action, options);
-  } catch (err) {
-    // The queue itself misbehaved: treat it as "not queued" and do the work here.
-    console.error("could not queue notification for", action, err);
-  }
-
-  // If it wasn't queued (inline mode, Redis down, or the queue failed) we create
-  // the notifications ourselves, so they are delayed at worst, never lost.
-  // Notifications must never break the action that triggered them.
-  if (!queued) {
-    try {
-      await notifyForActivity(action, options);
-    } catch (err) {
-      console.error("notification failed for", action, err);
-    }
-  }
+/**
+ * Writes an audit entry and sets the notifications for it in motion.
+ *
+ * The entry is written first and is what the notification work is driven from
+ * (see lib/outbox.ts), so a crash after this point can't lose the notification:
+ * the worker's relay finds the unprocessed entry. Code that needs the entry to
+ * commit together with its own change should call recordActivity() inside its
+ * transaction and dispatchActivity() after it instead.
+ *
+ * Throws only if the audit entry itself can't be written.
+ */
+export async function logActivity(action: string, options: ActivityInput = {}) {
+  const id = await recordActivity(prisma, action, options);
+  await dispatchActivity(id);
 }

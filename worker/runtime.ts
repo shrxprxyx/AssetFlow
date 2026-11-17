@@ -23,7 +23,14 @@ export type ScheduleConfig = Record<string, number>; // job name -> run every N 
 export const DEFAULT_SCHEDULE: ScheduleConfig = {
   "overdue-sweep": 5 * 60_000,
   "booking-tick": 60_000,
+  // Safety net for events nothing else delivered (see lib/outbox.ts).
+  "outbox-relay": 5_000,
 };
+
+const isIdleRelay = (name: string, result: unknown) =>
+  name === "outbox-relay" &&
+  (result as { processed?: number; failed?: number } | undefined)?.processed === 0 &&
+  (result as { failed?: number }).failed === 0;
 
 const log = (...args: unknown[]) => console.log(new Date().toISOString(), "[worker]", ...args);
 
@@ -51,7 +58,8 @@ export async function startWorkers(
       const run = handlers.sweeps[job.name];
       if (!run) throw new Error(`Unknown scheduled job "${job.name}"`);
       const result = await run();
-      log(`${job.name} finished`, JSON.stringify(result ?? {}));
+      // The relay runs every 5 s and usually finds nothing: stay quiet then.
+      if (!isIdleRelay(job.name, result)) log(`${job.name} finished`, JSON.stringify(result ?? {}));
       return result;
     },
     { connection, concurrency: 1 } // never run two sweeps at once

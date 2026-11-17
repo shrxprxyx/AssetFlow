@@ -1,4 +1,6 @@
 import { prisma, Prisma } from "./prisma";
+import type { ResourceBooking } from "@prisma/client";
+import { recordFor, dispatchActivity, type ActivityFor } from "./outbox";
 
 // Booking rules
 const MAX_BOOKING_HOURS = 12;
@@ -69,12 +71,14 @@ export async function createBooking(
   bookerId: number,
   startTime: Date,
   endTime: Date,
-  purpose?: string
+  purpose?: string,
+  /** Recorded in the same transaction as the booking (see lib/outbox.ts). */
+  activity?: ActivityFor<ResourceBooking>
 ) {
   checkWindow(startTime, endTime);
 
   try {
-    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const { booking, eventId } = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Lock the RESOURCE row (the Asset). Unlike locking the existing bookings,
       // this works even for a resource's very first booking — there is always a
       // parent row to lock — so concurrent requests for the same resource run
@@ -111,10 +115,13 @@ export async function createBooking(
         throw overlapError(overlapping);
       }
 
-      return tx.resourceBooking.create({
+      const booking = await tx.resourceBooking.create({
         data: { resourceId, bookerId, startTime, endTime, purpose, status: "UPCOMING" },
       });
+      return { booking, eventId: await recordFor(tx, activity, booking) };
     });
+    if (eventId) await dispatchActivity(eventId);
+    return booking;
   } catch (err) {
     // Backstop: the database's exclusion constraint caught an overlap that
     // somehow slipped past the check above.
@@ -138,7 +145,12 @@ export type BookingActor = { userId: number; role: string };
  * Allowed: the person who made it, or an Admin / Asset Manager.
  * Upcoming and in-progress bookings that haven't ended yet can be cancelled.
  */
-export async function cancelBookingAs(actor: BookingActor, bookingId: number) {
+export async function cancelBookingAs(
+  actor: BookingActor,
+  bookingId: number,
+  /** Recorded in the same transaction as the cancellation (see lib/outbox.ts). */
+  activity?: ActivityFor<ResourceBooking>
+) {
   const booking = await prisma.resourceBooking.findUnique({ where: { id: bookingId } });
   if (!booking) throw fail(404, "not_found", "Booking not found");
 
@@ -155,12 +167,17 @@ export async function cancelBookingAs(actor: BookingActor, bookingId: number) {
 
   // Atomic: if two requests cancel at once, only one of them changes the row.
   // (An in-progress booking can still be cancelled to free the room early.)
-  const done = await prisma.resourceBooking.updateMany({
-    where: { id: bookingId, status: { in: ["UPCOMING", "ONGOING"] } },
-    data: { status: "CANCELLED" },
+  const { updated, eventId } = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const done = await tx.resourceBooking.updateMany({
+      where: { id: bookingId, status: { in: ["UPCOMING", "ONGOING"] } },
+      data: { status: "CANCELLED" },
+    });
+    if (done.count === 0) {
+      throw fail(409, "already_cancelled", "This booking is already cancelled");
+    }
+    const updated = await tx.resourceBooking.findUniqueOrThrow({ where: { id: bookingId } });
+    return { updated, eventId: await recordFor(tx, activity, updated) };
   });
-  if (done.count === 0) {
-    throw fail(409, "already_cancelled", "This booking is already cancelled");
-  }
-  return prisma.resourceBooking.findUniqueOrThrow({ where: { id: bookingId } });
+  if (eventId) await dispatchActivity(eventId);
+  return updated;
 }

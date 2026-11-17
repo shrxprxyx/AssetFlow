@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cancelBookingAs } from "@/lib/bookings";
-import { logActivity } from "@/lib/logActivity";
 import { requireWriteAuth } from "@/lib/guards";
 
 // DELETE /api/bookings/:id  -> cancels the booking (it stays in the table as CANCELLED)
@@ -16,8 +15,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   }
 
   try {
-    const booking = await cancelBookingAs(user, id);
-    await logActivity("booking_cancelled", {
+    const booking = await cancelBookingAs(user, id, {
+      action: "booking_cancelled",
       actorId: user.userId,
       resourceType: "ResourceBooking",
       resourceId: id,

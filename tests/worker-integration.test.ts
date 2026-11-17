@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
 import IORedis from "ioredis";
 import { startWorkers } from "../worker/runtime";
-import { notifyForActivity } from "@/lib/notifications";
+import { handleEventJob } from "@/lib/outbox";
 import { runOverdueSweep } from "@/lib/sweeps";
 import { prisma } from "@/lib/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
@@ -56,7 +56,7 @@ async function freshLogActivity(url: string) {
 const startRealWorker = (schedule: Record<string, number> = {}) =>
   startWorkers(
     {
-      handleEvent: ({ action, options }) => notifyForActivity(action, options),
+      handleEvent: handleEventJob,
       sweeps: { "overdue-sweep": () => runOverdueSweep() },
     },
     schedule
