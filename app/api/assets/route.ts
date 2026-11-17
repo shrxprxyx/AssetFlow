@@ -6,6 +6,7 @@ import { requireAuth, requireWriteAuth } from '@/lib/guards';
 import { readJson, validationError } from '@/lib/http';
 import { parsePagination, paginated } from '@/lib/pagination';
 import { nextAssetTag, syncAssetTagSequence } from '@/lib/assetTag';
+import { departmentProblem } from '@/lib/assetLifecycle';
 
 const VALID_ASSET_STATUSES = Object.values(AssetStatus);
 const ci = (v: string) => ({ contains: v, mode: 'insensitive' as const });
@@ -29,6 +30,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (data.departmentId) {
+      const problem = await departmentProblem(prisma, data.departmentId);
+      if (problem) {
+        return NextResponse.json(
+          { error: 'validation_error', message: problem, field: 'departmentId' },
+          { status: 400 }
+        );
+      }
+    }
+
     let asset = null;
     let resynced = false;
     for (let attempt = 0; attempt < 5 && !asset; attempt++) {
@@ -47,9 +58,13 @@ export async function POST(req: NextRequest) {
             isBookable: data.isBookable,
             photoUrl: data.photoUrl,
             notes: data.notes,
+            departmentId: data.departmentId ?? null,
             status: 'AVAILABLE',
           },
-          include: { category: { select: { name: true } } },
+          include: {
+            category: { select: { name: true } },
+            department: { select: { id: true, name: true } },
+          },
         });
       } catch (e) {
         if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
@@ -95,6 +110,7 @@ export async function GET(req: NextRequest) {
     const serial = searchParams.get('serial');
     const name = searchParams.get('name');
     const categoryParam = searchParams.get('categoryId');
+    const departmentParam = searchParams.get('departmentId');
     const statusParam = searchParams.get('status');
     const location = searchParams.get('location');
     // Free-text search across tag, name, serial number and location.
@@ -114,6 +130,14 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const departmentId = departmentParam ? Number(departmentParam) : null;
+    if (departmentParam && (!Number.isInteger(departmentId) || departmentId! <= 0)) {
+      return NextResponse.json(
+        { error: 'validation_error', message: 'departmentId must be a positive integer', field: 'departmentId' },
+        { status: 400 }
+      );
+    }
+
     const paging = parsePagination(searchParams);
     if (!paging.ok) return paging.response;
     const { skip, take } = paging.page;
@@ -123,6 +147,7 @@ export async function GET(req: NextRequest) {
       ...(serial && { serialNumber: ci(serial) }),
       ...(name && { name: ci(name) }),
       ...(categoryId && { categoryId }),
+      ...(departmentId && { departmentId }),
       ...(statusParam && { status: statusParam as AssetStatus }),
       ...(location && { location: ci(location) }),
       ...(q && {
@@ -135,6 +160,7 @@ export async function GET(req: NextRequest) {
         where,
         include: {
           category: { select: { name: true } },
+          department: { select: { id: true, name: true } },
           allocations: {
             where: { status: 'ACTIVE' },
             take: 1,

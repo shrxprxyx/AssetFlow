@@ -109,14 +109,16 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  department          Department?           @relation("DeptEmployees", fields: [departmentId], references: [id])
-  headOfDepartments   Department[]          @relation("DeptHead")
-  allocationsHeld     Allocation[]          @relation("AllocationHolder")
-  transfersRequested  TransferRequest[]     @relation("TransferRequestedBy")
-  transfersApproved   TransferRequest[]     @relation("TransferApprovedBy")
+  department          Department?          @relation("DeptEmployees", fields: [departmentId], references: [id])
+  headOfDepartments   Department[]         @relation("DeptHead")
+  allocationsHeld     Allocation[]         @relation("AllocationHolder")
+  transfersRequested  TransferRequest[]    @relation("TransferRequestedBy")
+  transfersApproved   TransferRequest[]    @relation("TransferApprovedBy")
   bookings            ResourceBooking[]
-  maintenanceRaised   MaintenanceRequest[]  @relation("MaintenanceRequester")
-  maintenanceApproved MaintenanceRequest[]  @relation("MaintenanceApprover")
+  maintenanceRaised   MaintenanceRequest[] @relation("MaintenanceRequester")
+  maintenanceApproved MaintenanceRequest[] @relation("MaintenanceApprover")
+  maintenanceAssigned MaintenanceRequest[] @relation("MaintenanceTechnician")
+  assetHistory        AssetHistory[]       @relation("AssetHistoryActor")
   auditAssignments    AuditAssignment[]
   auditFindings       AuditFinding[]
   notifications       Notification[]
@@ -151,10 +153,12 @@ model Department {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  parent    Department?  @relation("DeptHierarchy", fields: [parentDeptId], references: [id])
-  children  Department[] @relation("DeptHierarchy")
-  head      User?        @relation("DeptHead", fields: [headId], references: [id])
-  employees User[]       @relation("DeptEmployees")
+  parent          Department?  @relation("DeptHierarchy", fields: [parentDeptId], references: [id])
+  children        Department[] @relation("DeptHierarchy")
+  head            User?        @relation("DeptHead", fields: [headId], references: [id])
+  employees       User[]       @relation("DeptEmployees")
+  assets          Asset[]      @relation("AssetOwner")
+  allocationsHeld Allocation[] @relation("AllocationHolderDept")
 
   @@index([status])
   @@index([parentDeptId])
@@ -187,10 +191,14 @@ model Asset {
   status          AssetStatus    @default(AVAILABLE)
   photoUrl        String?
   notes           String?
+  /// The department that owns this asset. It stays put while the asset is lent out;
+  /// who holds it right now is the active Allocation. Null = not assigned to anyone.
+  departmentId    Int?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   category      AssetCategory        @relation(fields: [categoryId], references: [id])
+  department    Department?          @relation("AssetOwner", fields: [departmentId], references: [id], onDelete: Restrict)
   history       AssetHistory[]
   allocations   Allocation[]
   transfers     TransferRequest[]
@@ -201,6 +209,7 @@ model Asset {
   @@index([status])
   @@index([categoryId])
   @@index([isBookable])
+  @@index([departmentId])
 }
 
 model AssetHistory {
@@ -213,8 +222,10 @@ model AssetHistory {
   createdAt  DateTime     @default(now())
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  actor User  @relation("AssetHistoryActor", fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([assetId])
+  @@index([actorId])
 }
 
 // ── Holding ──────────────────────────────────────────
@@ -234,17 +245,19 @@ model Allocation {
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
-  asset  Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  holder User? @relation("AllocationHolder", fields: [holderId], references: [id])
-
-  @@index([assetId])
-  @@index([holderId])
-  @@index([status])
-  @@index([expectedReturnDate])
-  @@index([assetId, status])
+  asset      Asset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  holder     User?       @relation("AllocationHolder", fields: [holderId], references: [id])
+  holderDept Department? @relation("AllocationHolderDept", fields: [holderDeptId], references: [id], onDelete: Restrict)
   // "Only one ACTIVE allocation per asset" is enforced by a partial unique
   // index created in raw SQL (migration 20261017120000_concurrency_constraints).
   // Prisma can't declare it, so DON'T let `migrate dev` drop it.
+
+  @@index([assetId])
+  @@index([holderId])
+  @@index([holderDeptId])
+  @@index([status])
+  @@index([expectedReturnDate])
+  @@index([assetId, status])
 }
 
 model TransferRequest {
@@ -284,14 +297,14 @@ model ResourceBooking {
 
   resource Asset @relation(fields: [resourceId], references: [id])
   booker   User  @relation(fields: [bookerId], references: [id])
+  // Overlap prevention: row lock in lib/bookings.ts plus the gist exclusion
+  // constraint "booking_no_overlap" (raw SQL migration). Prisma can't declare it.
 
   @@index([resourceId])
   @@index([bookerId])
   @@index([status])
   @@index([startTime, endTime])
   @@index([resourceId, startTime, endTime])
-  // Overlap prevention: row lock in lib/bookings.ts plus the gist exclusion
-  // constraint "booking_no_overlap" (raw SQL migration). Prisma can't declare it.
 }
 
 // ── Maintenance ──────────────────────────────────────
@@ -313,32 +326,34 @@ model MaintenanceRequest {
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
-  asset     Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  requester User  @relation("MaintenanceRequester", fields: [requesterId], references: [id])
-  approver  User? @relation("MaintenanceApprover", fields: [approvedBy], references: [id])
+  asset      Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  requester  User  @relation("MaintenanceRequester", fields: [requesterId], references: [id])
+  approver   User? @relation("MaintenanceApprover", fields: [approvedBy], references: [id])
+  technician User? @relation("MaintenanceTechnician", fields: [technicianId], references: [id], onDelete: Restrict)
 
   @@index([assetId])
   @@index([status])
   @@index([requesterId])
+  @@index([technicianId])
 }
 
 // ── Audit ────────────────────────────────────────────
 
 model AuditCycle {
-  id        Int              @id @default(autoincrement())
-  name      String
-  scopeType AuditScopeType
-  scopeId   Int?
+  id            Int              @id @default(autoincrement())
+  name          String
+  scopeType     AuditScopeType
+  scopeId       Int?
   // For LOCATION scope: assets whose location contains this text.
   scopeLocation String?
-  startDate DateTime
-  endDate   DateTime
-  status    AuditCycleStatus @default(ACTIVE)
-  createdBy Int
-  closedBy  Int?
-  closedAt  DateTime?
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  startDate     DateTime
+  endDate       DateTime
+  status        AuditCycleStatus @default(ACTIVE)
+  createdBy     Int
+  closedBy      Int?
+  closedAt      DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
   assignments AuditAssignment[]
   findings    AuditFinding[]
@@ -399,27 +414,29 @@ model Notification {
   /// The activity event this came from; with userId and type it makes delivery idempotent.
   activityLogId       Int?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activityLog ActivityLog? @relation(fields: [activityLogId], references: [id], onDelete: SetNull)
 
+  @@unique([activityLogId, userId, type])
   @@index([userId, isRead])
   @@index([createdAt])
-  @@unique([activityLogId, userId, type])
 }
 
 model ActivityLog {
-  id           Int      @id @default(autoincrement())
-  actorId      Int?
-  action       String
-  resourceType String?
-  resourceId   Int?
-  changes      String?
-  timestamp    DateTime @default(now())
+  id              Int       @id @default(autoincrement())
+  actorId         Int?
+  action          String
+  resourceType    String?
+  resourceId      Int?
+  changes         String?
+  timestamp       DateTime  @default(now())
   /// Outbox: set once this event's notifications have been created.
   processedAt     DateTime?
   /// Outbox: failed delivery attempts; the relay stops retrying at 5.
   processAttempts Int       @default(0)
 
-  actor User? @relation(fields: [actorId], references: [id])
+  actor         User?          @relation(fields: [actorId], references: [id])
+  notifications Notification[]
 
   @@index([actorId])
   @@index([resourceType, resourceId])

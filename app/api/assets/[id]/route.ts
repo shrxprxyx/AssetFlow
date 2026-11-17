@@ -28,6 +28,7 @@ const assetUpdateSchema = z
     isBookable: z.boolean().optional(),
     photoUrl: z.preprocess(blankToNull, photoUrlSchema.nullable()).optional(),
     notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    departmentId: z.number().int().positive().nullable().optional(),
   })
   .refine((d) => Object.keys(d).length > 0, { message: "Provide at least one field to change" });
 
@@ -43,6 +44,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     where: { id },
     include: {
       category: { select: { id: true, name: true } },
+      department: { select: { id: true, name: true } },
       allocations: {
         where: { status: "ACTIVE" },
         take: 1,

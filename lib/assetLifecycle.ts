@@ -25,7 +25,23 @@ export type AssetPatch = {
   isBookable?: boolean;
   photoUrl?: string | null;
   notes?: string | null;
+  /** The owning department; null takes the asset out of any department. */
+  departmentId?: number | null;
 };
+
+/**
+ * Why `id` can't be set as an asset's owning department, or null if it can:
+ * it has to exist and be active. Takes the client or a transaction.
+ */
+export async function departmentProblem(
+  db: Pick<Prisma.TransactionClient, "department">,
+  id: number
+): Promise<string | null> {
+  const dept = await db.department.findUnique({ where: { id }, select: { status: true } });
+  if (!dept) return "Department not found";
+  if (dept.status !== "ACTIVE") return "Department is inactive";
+  return null;
+}
 
 export async function updateAsset(assetId: number, patch: AssetPatch) {
   try {
@@ -41,6 +57,13 @@ export async function updateAsset(assetId: number, patch: AssetPatch) {
       if (patch.categoryId !== undefined) {
         const category = await tx.assetCategory.findUnique({ where: { id: patch.categoryId } });
         if (!category) throw fail(400, "validation_error", "Category not found", "categoryId");
+      }
+
+      // Only check a department that is being newly assigned, so re-saving an
+      // asset whose department was deactivated later doesn't fail.
+      if (patch.departmentId != null && patch.departmentId !== asset.departmentId) {
+        const problem = await departmentProblem(tx, patch.departmentId);
+        if (problem) throw fail(400, "validation_error", problem, "departmentId");
       }
 
       // Don't pull a room out of service while people have it booked.
@@ -61,7 +84,10 @@ export async function updateAsset(assetId: number, patch: AssetPatch) {
       return tx.asset.update({
         where: { id: assetId },
         data: patch,
-        include: { category: { select: { name: true } } },
+        include: {
+          category: { select: { name: true } },
+          department: { select: { id: true, name: true } },
+        },
       });
     });
   } catch (err) {
@@ -155,7 +181,7 @@ export async function changeAssetStatus(
     }
 
     // Found again: back to ALLOCATED if someone still holds it
-    // (the audit "close" step can leave an allocation open on a lost asset).
+    // (older data: audit closes used to leave the allocation open on a lost asset).
     const nextStatus =
       target === "AVAILABLE" && activeAllocation ? "ALLOCATED" : target;
 

@@ -73,6 +73,8 @@ export const assetSchema = z.object({
   location: z.string().optional(),
   isBookable: z.boolean().default(false),
   notes: z.string().optional(),
+  /** Owning department. Omit or null = not assigned to any department. */
+  departmentId: z.number().int().positive().nullable().optional(),
 });
 export type AssetInput = z.infer<typeof assetSchema>;
 

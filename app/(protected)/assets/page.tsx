@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 // ── Types ──────────────────────────────────────────────
 
 type Category = { id: number; name: string; description: string | null };
+type Department = { id: number; name: string; status: "ACTIVE" | "INACTIVE" };
 
 type AssetStatus =
   | "AVAILABLE"
@@ -40,6 +41,8 @@ type Asset = {
   name: string;
   categoryId: number;
   category?: { name: string };
+  departmentId?: number | null;
+  department?: { id: number; name: string } | null;
   serialNumber: string | null;
   acquisitionDate: string | null;
   acquisitionCost: number | null;
@@ -55,6 +58,7 @@ type Asset = {
 type FormState = {
   name: string;
   categoryId: string;
+  departmentId: string;
   serialNumber: string;
   acquisitionDate: string;
   acquisitionCost: string;
@@ -68,6 +72,7 @@ type FormState = {
 const EMPTY_FORM: FormState = {
   name: "",
   categoryId: "",
+  departmentId: "",
   serialNumber: "",
   acquisitionDate: "",
   acquisitionCost: "",
@@ -165,10 +170,12 @@ function AssetFormFields({
   form,
   setForm,
   categories,
+  departments,
 }: {
   form: FormState;
   setForm: (f: FormState) => void;
   categories: Category[];
+  departments: Department[];
 }) {
   return (
     <div className="grid sm:grid-cols-3 gap-3">
@@ -187,6 +194,25 @@ function AssetFormFields({
         {categories.map((c) => (
           <option key={c.id} value={c.id}>
             {c.name}
+          </option>
+        ))}
+      </select>
+      <select
+        value={form.departmentId}
+        onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
+        className={inputClass}
+        aria-label="Owning department"
+      >
+        <option value="">No owning department</option>
+        {departments.map((d) => (
+          // An inactive department can't be newly assigned; keep it listed only if already chosen.
+          <option
+            key={d.id}
+            value={d.id}
+            disabled={d.status !== "ACTIVE" && String(d.id) !== form.departmentId}
+          >
+            {d.name}
+            {d.status !== "ACTIVE" ? " (inactive)" : ""}
           </option>
         ))}
       </select>
@@ -264,6 +290,9 @@ function buildPatch(orig: Asset, f: FormState): { patch: Record<string, unknown>
   if (!categoryId) return { patch, error: "Category is required" };
   if (categoryId !== orig.categoryId) patch.categoryId = categoryId;
 
+  const departmentId = f.departmentId === "" ? null : Number(f.departmentId);
+  if (departmentId !== (orig.departmentId ?? null)) patch.departmentId = departmentId;
+
   const setText = (key: string, value: string, original: string | null) => {
     const next = value.trim();
     if (next !== (original ?? "")) patch[key] = next === "" ? null : next;
@@ -297,12 +326,14 @@ export default function AssetsPage() {
 
   const [assets, setAssets] = useState<Asset[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
   // Server-side filters
   const [categoryId, setCategoryId] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
   const [status, setStatus] = useState("");
   // The search box is also server-side (?q=), so it searches every asset, not
   // just the page on screen. `search` is what's typed; `query` is what was
@@ -341,16 +372,21 @@ export default function AssetsPage() {
     try {
       const params = new URLSearchParams();
       if (categoryId) params.set("categoryId", categoryId);
+      if (departmentFilter) params.set("departmentId", departmentFilter);
       if (status) params.set("status", status);
       if (query) params.set("q", query);
       params.set("page", String(page));
       params.set("pageSize", String(PAGE_SIZE));
-      const [assetsRes, catRes] = await Promise.all([
+      const [assetsRes, catRes, deptRes] = await Promise.all([
         fetch(`/api/assets?${params}`),
         fetch("/api/asset-categories"),
+        fetch("/api/departments"),
       ]);
       const assetsData = await assetsRes.json();
       const categoriesData = await catRes.json();
+      // The department list only feeds the picker and the filter; if it fails,
+      // the assets still load and the pickers are just empty.
+      const departmentsData = deptRes.ok ? await deptRes.json() : [];
       if (seq !== loadSeq.current) return; // a newer load has started
       if (!assetsRes.ok) throw new Error(assetsData.message || assetsData.error || "Failed to load assets");
 
@@ -364,6 +400,7 @@ export default function AssetsPage() {
       setAssets(rows);
       setTotal(count);
       setCategories(categoriesData);
+      setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
     } catch (e) {
       if (seq === loadSeq.current) setError(e instanceof Error ? e.message : "Failed to load assets");
     } finally {
@@ -374,7 +411,7 @@ export default function AssetsPage() {
   useEffect(() => {
     refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryId, status, query, page]);
+  }, [categoryId, departmentFilter, status, query, page]);
 
   // Send the search a moment after typing stops, and start again from page 1.
   useEffect(() => {
@@ -393,6 +430,7 @@ export default function AssetsPage() {
     setEditForm({
       name: a.name,
       categoryId: String(a.categoryId),
+      departmentId: a.departmentId == null ? "" : String(a.departmentId),
       serialNumber: a.serialNumber ?? "",
       acquisitionDate: (a.acquisitionDate ?? "").slice(0, 10),
       acquisitionCost: a.acquisitionCost == null ? "" : String(a.acquisitionCost),
@@ -416,7 +454,7 @@ export default function AssetsPage() {
 
   // Search, category and status are all applied by the server now.
   const visibleAssets = assets;
-  const hasFilters = Boolean(query || categoryId || status);
+  const hasFilters = Boolean(query || categoryId || departmentFilter || status);
 
   const columns = useMemo<ColumnDef<Asset>[]>(() => {
     const base: ColumnDef<Asset>[] = [
@@ -453,6 +491,14 @@ export default function AssetsPage() {
         header: "Category",
         cell: ({ row }) => (
           <span className="text-muted-foreground">{row.original.category?.name ?? "—"}</span>
+        ),
+      },
+      {
+        id: "department",
+        accessorFn: (a) => a.department?.name ?? "",
+        header: "Department",
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">{row.original.department?.name ?? "—"}</span>
         ),
       },
       {
@@ -556,6 +602,7 @@ export default function AssetsPage() {
         body: JSON.stringify({
           name: form.name,
           categoryId: Number(form.categoryId),
+          departmentId: form.departmentId ? Number(form.departmentId) : null,
           serialNumber: form.serialNumber || undefined,
           acquisitionDate: form.acquisitionDate || undefined,
           acquisitionCost: form.acquisitionCost ? Number(form.acquisitionCost) : undefined,
@@ -685,6 +732,22 @@ export default function AssetsPage() {
               ))}
             </select>
             <select
+              value={departmentFilter}
+              onChange={(e) => {
+                setDepartmentFilter(e.target.value);
+                setPage(1);
+              }}
+              className={cn(inputClass, "cursor-pointer")}
+              aria-label="Filter by owning department"
+            >
+              <option value="">All Departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id} className="cursor-pointer">
+                  {d.name}
+                </option>
+              ))}
+            </select>
+            <select
               value={status}
               onChange={(e) => {
                 setStatus(e.target.value);
@@ -716,7 +779,7 @@ export default function AssetsPage() {
 
           {showForm && canManage && (
             <div className="rounded-lg border border-border p-4 space-y-3">
-              <AssetFormFields form={form} setForm={setForm} categories={categories} />
+              <AssetFormFields form={form} setForm={setForm} categories={categories} departments={departments} />
               <Button onClick={registerAsset} disabled={submitting}>
                 {submitting ? "Registering..." : "Register Asset"}
               </Button>
@@ -728,7 +791,7 @@ export default function AssetsPage() {
               <p className="text-sm font-medium text-foreground">
                 Editing <span className="font-mono">{editing.assetTag}</span>
               </p>
-              <AssetFormFields form={editForm} setForm={setEditForm} categories={categories} />
+              <AssetFormFields form={editForm} setForm={setEditForm} categories={categories} departments={departments} />
               <div className="flex gap-2">
                 <Button onClick={saveEdit} disabled={saving} className="cursor-pointer">
                   {saving ? "Saving..." : "Save changes"}
