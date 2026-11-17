@@ -62,6 +62,24 @@ describe("rateLimit (fixed window)", () => {
   });
 });
 
+describe("RATE_LIMIT_DISABLED (load tests only)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("lets everything through when set to true", async () => {
+    vi.stubEnv("RATE_LIMIT_DISABLED", "true");
+
+    for (let i = 0; i < 20; i++) expect((await rateLimit(rule, "flood")).allowed).toBe(true);
+  });
+
+  it("does nothing for any other value, so a stray setting can't switch limits off", async () => {
+    vi.stubEnv("RATE_LIMIT_DISABLED", "1");
+
+    for (let i = 0; i < 3; i++) await rateLimit(rule, "strict");
+
+    expect((await rateLimit(rule, "strict")).allowed).toBe(false);
+  });
+});
+
 describe("tooManyRequests", () => {
   it("is a 429 with Retry-After and a JSON body", async () => {
     const res = tooManyRequests({ allowed: false, limit: 3, remaining: 0, retryAfterSec: 42 });

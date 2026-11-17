@@ -124,8 +124,27 @@ const keyFor = (rule: RateLimitRule, id: string) => `rl:${rule.name}:${id}`;
 
 /* ──────────────────────────────────── API ─────────────────────────────────── */
 
+let warnedDisabled = false;
+
+/**
+ * Load tests send thousands of requests from one machine, which the limits
+ * would (rightly) block. Setting RATE_LIMIT_DISABLED=true switches them off for
+ * that run. Only the exact value "true" counts. Never set it on a real server.
+ */
+function limitsDisabled() {
+  if (process.env.RATE_LIMIT_DISABLED !== "true") return false;
+  if (!warnedDisabled) {
+    warnedDisabled = true;
+    console.warn("[rateLimit] RATE_LIMIT_DISABLED=true: rate limiting is OFF. Use this for load tests only.");
+  }
+  return true;
+}
+
 /** Counts this request and says whether it is within the limit. */
 export async function rateLimit(rule: RateLimitRule, identifier: string): Promise<RateLimitResult> {
+  if (limitsDisabled()) {
+    return { allowed: true, limit: rule.limit, remaining: rule.limit, retryAfterSec: 1 };
+  }
   const { count, ttlMs } = await hit(keyFor(rule, identifier), rule.windowSec * 1000);
   return {
     allowed: count <= rule.limit,
