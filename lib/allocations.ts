@@ -237,106 +237,6 @@ export async function allocateAsset(
 }
 
 /* =====================================================
-   Transfer Asset
-===================================================== */
-
-export async function transferAsset(
-  assetId: number,
-  fromHolderId: number | undefined,
-  toHolderId: number,
-  reason: string | undefined,
-  actorId: number
-): Promise<AllocationResult> {
-  try {
-    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await lockAsset(tx, assetId);
-
-      const current = await tx.allocation.findFirst({
-        where: {
-          assetId,
-          status: "ACTIVE",
-        },
-      });
-
-      if (!current) {
-        return {
-          success: false,
-          error: "No active allocation",
-        };
-      }
-
-      // fromHolderId is optional on the wire (the frontend may not always know
-      // the current holder up front) — when it IS supplied, verify it matches;
-      // when it's omitted, trust the DB's current holder instead of failing.
-      if (fromHolderId !== undefined && current.holderId !== fromHolderId) {
-        return {
-          success: false,
-          error: "Holder mismatch",
-        };
-      }
-
-      if (current.holderId === toHolderId) {
-        return {
-          success: false,
-          error: "Asset is already held by that user",
-        };
-      }
-
-      const asset = await tx.asset.findUnique({ where: { id: assetId } });
-
-      await tx.allocation.update({
-        where: {
-          id: current.id,
-        },
-        data: {
-          status: "RETURNED",
-          returnedDate: new Date(),
-        },
-      });
-
-      const allocation = await tx.allocation.create({
-        data: {
-          assetId,
-          holderId: toHolderId,
-          holderType: "EMPLOYEE",
-          status: "ACTIVE",
-        },
-        include: {
-          holder: true,
-          asset: true,
-        },
-      });
-
-      await tx.assetHistory.create({
-        data: {
-          assetId,
-          fromStatus: asset?.status,
-          toStatus: "ALLOCATED",
-          actorId,
-          reason: reason ? `Transferred: ${reason}` : "Transferred to new holder",
-        },
-      });
-
-      return {
-        success: true,
-        allocation,
-      };
-    });
-  } catch (err) {
-    if (isUniqueViolation(err)) {
-      return {
-        success: false,
-        error: "The asset was just reassigned by another request — please retry",
-      };
-    }
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Unknown error",
-    };
-  }
-}
-
-/* =====================================================
    Return Asset
 ===================================================== */
 
@@ -385,10 +285,19 @@ export async function returnAsset(
         };
       }
 
-      // Only flip the asset back to AVAILABLE if it is still ALLOCATED — don't
-      // overwrite e.g. UNDER_MAINTENANCE or LOST set while it was held.
       const asset = await tx.asset.findUnique({ where: { id: allocation.assetId } });
 
+      // The condition recorded at check-in is the asset's condition from now on.
+      const conditionChanged = !!asset && asset.condition !== condition;
+      if (asset && conditionChanged) {
+        await tx.asset.update({
+          where: { id: allocation.assetId },
+          data: { condition },
+        });
+      }
+
+      // Only flip the asset back to AVAILABLE if it is still ALLOCATED — don't
+      // overwrite e.g. UNDER_MAINTENANCE or LOST set while it was held.
       if (asset?.status === "ALLOCATED") {
         await tx.asset.update({
           where: {
@@ -399,13 +308,16 @@ export async function returnAsset(
           },
         });
 
+        const parts = [returnNotes ? `Returned: ${returnNotes}` : "Returned"];
+        if (conditionChanged) parts.push(`condition ${asset.condition} → ${condition}`);
+
         await tx.assetHistory.create({
           data: {
             assetId: allocation.assetId,
             fromStatus: "ALLOCATED",
             toStatus: "AVAILABLE",
             actorId,
-            reason: returnNotes ? `Returned: ${returnNotes}` : "Returned",
+            reason: parts.join(" — "),
           },
         });
       }
