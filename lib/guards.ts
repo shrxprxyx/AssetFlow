@@ -45,7 +45,7 @@ export async function requireAuth(...allowedRoles: Role[]): Promise<GuardResult>
 
   const user = await prisma.user.findUnique({
     where: { id },
-    select: { id: true, email: true, role: true, status: true, departmentId: true },
+    select: { id: true, email: true, role: true, status: true, departmentId: true, sessionVersion: true },
   });
 
   if (!user || user.status !== "ACTIVE") {
@@ -53,6 +53,17 @@ export async function requireAuth(...allowedRoles: Role[]): Promise<GuardResult>
       ok: false,
       response: NextResponse.json(
         { error: "unauthorized", message: "Account not found or inactive" },
+        { status: 401 }
+      ),
+    };
+  }
+
+  // A session from before a password reset, a deactivation or "sign out everywhere" is dead.
+  if ((session.user.sessionVersion ?? 0) !== user.sessionVersion) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "unauthorized", message: "Your session has ended. Please sign in again." },
         { status: 401 }
       ),
     };

@@ -27,6 +27,7 @@ export function createUser(
     data: {
       email: `user${n}@test.local`,
       passwordHash: "not-a-real-hash",
+      emailVerifiedAt: new Date(),
       firstName: "User",
       lastName: `N${n}`,
       role: o.role ?? "EMPLOYEE",

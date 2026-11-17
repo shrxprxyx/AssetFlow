@@ -38,6 +38,8 @@ export const LIMITS = {
   loginIp: { name: "login-ip", limit: 30, windowSec: 15 * 60 },
   signup: { name: "signup", limit: 10, windowSec: 60 * 60 },
   forgotPassword: { name: "forgot-password", limit: 10, windowSec: 60 * 60 },
+  verifyEmail: { name: "verify-email", limit: 20, windowSec: 60 * 60 },
+  resendVerification: { name: "resend-verification", limit: 10, windowSec: 60 * 60 },
   resetPassword: { name: "reset-password", limit: 20, windowSec: 60 * 60 },
   /** Any POST/PUT/PATCH/DELETE by a signed-in user. */
   writes: { name: "writes", limit: 120, windowSec: 60 },

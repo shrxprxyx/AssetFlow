@@ -9,7 +9,9 @@ import type { NextAuthConfig } from "next-auth";
  * check + rate limiting) on top of this for the API routes.
  */
 export const authConfig = {
-  session: { strategy: "jwt" },
+  // Short sessions: a stolen cookie stops working within a day even if never revoked.
+  // (Revoking sooner: bump User.sessionVersion, see lib/guards.ts.)
+  session: { strategy: "jwt", maxAge: 8 * 60 * 60 },
   pages: { signIn: "/login" },
   providers: [],
   callbacks: {
@@ -18,6 +20,7 @@ export const authConfig = {
         token.role = user.role;
         token.departmentId = user.departmentId;
         token.id = user.id;
+        token.sessionVersion = user.sessionVersion;
       }
       return token;
     },
@@ -26,6 +29,8 @@ export const authConfig = {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
         session.user.departmentId = token.departmentId as number | null;
+        // Sessions issued before this existed have no version: they count as 0.
+        session.user.sessionVersion = (token.sessionVersion as number | undefined) ?? 0;
       }
       return session;
     },

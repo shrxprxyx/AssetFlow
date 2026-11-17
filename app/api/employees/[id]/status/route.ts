@@ -40,7 +40,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const updated = await prisma.$transaction(async (tx) => {
     const saved = await tx.user.update({
       where: { id: employeeId },
-      data: { status: body.status },
+      // A deactivated account that is later reactivated must not revive its old sessions.
+      data: { status: body.status, sessionVersion: { increment: 1 } },
     });
     eventId = await recordActivity(tx, "employee_status_changed", {
       actorId: guard.user.userId,

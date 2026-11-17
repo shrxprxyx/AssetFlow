@@ -474,3 +474,123 @@ export function ResetPasswordForm({ token }: { token: string }) {
     </form>
   );
 }
+
+/* ───────────────────────────── email verification ───────────────────────────── */
+
+export function ResendVerificationForm({ defaultEmail = "" }: { defaultEmail?: string }) {
+  const [apiError, setApiError] = useState("");
+  const [sentMessage, setSentMessage] = useState("");
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<ForgotPasswordInput>({
+    resolver: zodResolver(forgotPasswordSchema),
+    defaultValues: { email: defaultEmail },
+  });
+
+  const onSubmitForm = async (data: ForgotPasswordInput) => {
+    setApiError("");
+    try {
+      const res = await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Could not send the link");
+      setSentMessage(body.message || "If that account still needs verifying, a new link has been sent.");
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Could not send the link");
+    }
+  };
+
+  if (sentMessage) {
+    return (
+      <div className="space-y-5">
+        <SuccessAlert message={sentMessage} />
+        <p className="text-sm text-neutral-400">The link expires after 24 hours. Check your spam folder if it doesn&apos;t arrive.</p>
+        <BackToSignIn />
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit(onSubmitForm)} className="space-y-5" noValidate>
+      {apiError && <ErrorAlert message={apiError} />}
+      <Field
+        label="Email"
+        icon={Mail}
+        type="email"
+        placeholder="you@company.com"
+        autoComplete="email"
+        error={errors.email?.message}
+        {...register("email")}
+      />
+      <SubmitButton loading={isSubmitting} loadingText="Sending...">
+        Send a new link
+      </SubmitButton>
+      <BackToSignIn />
+    </form>
+  );
+}
+
+/**
+ * With a token: a button that confirms the address. It is a button, not
+ * automatic, because mail scanners open links to check them, and that would use
+ * up a single-use link before the person ever clicked it.
+ * Without a token: the form for asking for a new link.
+ */
+export function VerifyEmailPanel({ token }: { token: string }) {
+  const [state, setState] = useState<"idle" | "working" | "done" | "failed">("idle");
+  const [message, setMessage] = useState("");
+
+  if (!token) return <ResendVerificationForm />;
+
+  async function confirm() {
+    setState("working");
+    try {
+      const res = await fetch("/api/auth/verify-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      const body = await res.json().catch(() => ({}));
+      setMessage(body.message || (res.ok ? "Your email is verified." : "Could not verify the email"));
+      setState(res.ok ? "done" : "failed");
+    } catch {
+      setMessage("Could not verify the email. Check your connection and try again.");
+      setState("failed");
+    }
+  }
+
+  if (state === "done") {
+    return (
+      <div className="space-y-5">
+        <SuccessAlert message={message} />
+        <BackToSignIn />
+      </div>
+    );
+  }
+  if (state === "failed") {
+    return (
+      <div className="space-y-5">
+        <ErrorAlert message={message} />
+        <ResendVerificationForm />
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-5">
+      <button
+        type="button"
+        onClick={confirm}
+        disabled={state === "working"}
+        className="flex w-full items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-neutral-200 disabled:opacity-60"
+      >
+        {state === "working" ? "Verifying..." : "Confirm my email"}
+      </button>
+      <BackToSignIn />
+    </div>
+  );
+}

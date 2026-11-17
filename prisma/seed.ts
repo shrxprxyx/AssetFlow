@@ -29,6 +29,7 @@ async function main() {
     data: {
       email: "admin@assetflow.com",
       passwordHash,
+      emailVerifiedAt: new Date(),
       firstName: "Alex",
       lastName: "Admin",
       role: "ADMIN",
@@ -40,6 +41,7 @@ async function main() {
     data: {
       email: "manager@assetflow.com",
       passwordHash,
+      emailVerifiedAt: new Date(),
       firstName: "Morgan",
       lastName: "Manager",
       role: "ASSET_MANAGER",
@@ -51,6 +53,7 @@ async function main() {
     data: {
       email: "head@assetflow.com",
       passwordHash,
+      emailVerifiedAt: new Date(),
       firstName: "Dana",
       lastName: "Head",
       role: "DEPARTMENT_HEAD",
@@ -62,6 +65,7 @@ async function main() {
     data: {
       email: "priya.shah@assetflow.com",
       passwordHash,
+      emailVerifiedAt: new Date(),
       firstName: "Priya",
       lastName: "Shah",
       role: "EMPLOYEE",

@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 import { auth } from "@/auth";
 
-type TestUser = { id: number; email: string; role: string; departmentId: number | null };
+type TestUser = { id: number; email: string; role: string; departmentId: number | null; sessionVersion?: number };
 
 /** Make the next requests look like they come from this user's session. */
 export function signInAs(user: TestUser, sessionRole?: string) {
@@ -12,6 +12,7 @@ export function signInAs(user: TestUser, sessionRole?: string) {
       // The session (JWT) role can be stale; the guards must trust the database instead.
       role: sessionRole ?? user.role,
       departmentId: user.departmentId,
+      sessionVersion: user.sessionVersion ?? 0,
     },
     expires: "2999-01-01T00:00:00.000Z",
   } as never);

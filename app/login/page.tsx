@@ -27,6 +27,11 @@ export default function LoginPage() {
         if (res.code === "rate_limited") {
           throw new Error("Too many sign-in attempts. Please wait a few minutes and try again.");
         }
+        if (res.code === "email_not_verified") {
+          throw new Error(
+            "Your email isn't verified yet. Open the link we emailed you, or go to /verify-email to get a new one."
+          );
+        }
         throw new Error("Invalid email or password");
       }
 

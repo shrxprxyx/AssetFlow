@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import { authConfig } from "@/auth.config";
 import { NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/reset-password"];
+const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/reset-password", "/verify-email"];
 
 // Next.js 16 renamed middleware to proxy (this file used to be middleware.ts).
 // Built from the lightweight config only: importing "@/auth" here would pull the

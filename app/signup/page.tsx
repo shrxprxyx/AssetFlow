@@ -1,16 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
+import Link from "next/link";
 import { AuthShell } from "@/components/auth-shell";
 import { SignupForm } from "@/components/auth-forms";
 import { authApi } from "@/lib/api-client";
 import type { SignupInput } from "@/lib/schemas";
 
 export default function SignupPage() {
-  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [submittedEmail, setSubmittedEmail] = useState("");
 
   async function handleSignup(data: SignupInput) {
     setIsLoading(true);
@@ -20,24 +19,33 @@ export default function SignupPage() {
       // account only".
       await authApi.signup(data);
 
-      // Auto-login so the person lands on the dashboard instead of being
-      // bounced back to a form they just filled out.
-      const res = await signIn("credentials", {
-        email: data.email,
-        password: data.password,
-        redirect: false,
-      });
-
-      if (res?.error) {
-        router.push("/login");
-        return;
-      }
-
-      router.push("/dashboard");
-      router.refresh();
+      // The account can't sign in until the emailed link is opened.
+      setSubmittedEmail(data.email);
     } finally {
       setIsLoading(false);
     }
+  }
+
+  if (submittedEmail) {
+    return (
+      <AuthShell title="Check your email" subtitle="One more step before you can sign in">
+        <div className="space-y-4 text-sm text-neutral-300">
+          <p>
+            We sent a verification link to <strong className="text-white">{submittedEmail}</strong>. Open it, then sign in.
+          </p>
+          <p className="text-neutral-400">
+            It expires after 24 hours. Didn&apos;t get it?{" "}
+            <Link href="/verify-email" className="text-white underline-offset-4 hover:underline">
+              Send a new link
+            </Link>
+            .
+          </p>
+          <Link href="/login" className="block text-center font-medium text-white underline-offset-4 hover:underline">
+            Go to sign in
+          </Link>
+        </div>
+      </AuthShell>
+    );
   }
 
   return (

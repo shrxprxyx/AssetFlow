@@ -4,6 +4,7 @@ import { signupSchema } from "@/lib/schemas";
 import { prisma, Prisma } from "@/lib/prisma";
 import { findUserByEmail, normalizeEmail } from "@/lib/userLookup";
 import { readJson, validationError } from "@/lib/http";
+import { sendVerificationEmail } from "@/lib/emailVerification";
 import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/lib/rateLimit";
 
 const emailTaken = () =>
@@ -38,7 +39,12 @@ export async function POST(req: NextRequest) {
     const user = await prisma.user.create({
       data: { firstName, lastName, email, passwordHash, role: "EMPLOYEE" },
     });
-    return NextResponse.json({ id: user.id, email: user.email, role: user.role }, { status: 201 });
+    // They can't sign in until they open the emailed link.
+    await sendVerificationEmail(user, new URL(req.url).origin);
+    return NextResponse.json(
+      { id: user.id, email: user.email, role: user.role, emailVerificationRequired: true },
+      { status: 201 }
+    );
   } catch (err) {
     // Two sign-ups for the same address at the same moment both pass the check
     // above; the database's unique index lets only one of them in.

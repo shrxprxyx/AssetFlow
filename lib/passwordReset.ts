@@ -29,7 +29,7 @@ export const hashToken = (token: string) => createHash("sha256").update(token).d
  * an attacker have a victim emailed a reset link that points at the attacker's
  * own site.
  */
-function appBaseUrl(requestOrigin: string): string | null {
+export function appBaseUrl(requestOrigin: string): string | null {
   const configured = process.env.APP_URL ?? process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
   if (configured) return configured.replace(/\/+$/, "");
   if (process.env.NODE_ENV === "production") return null;
@@ -116,7 +116,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
   // Cheap check first, so a bad link is refused without paying for a bcrypt hash.
   const found = await prisma.passwordResetToken.findUnique({
     where: { tokenHash },
-    include: { user: { select: { id: true, status: true } } },
+    include: { user: { select: { id: true, status: true, emailVerifiedAt: true } } },
   });
   if (!found || found.usedAt || found.expiresAt <= new Date() || found.user.status !== "ACTIVE") {
     throw invalidToken();
@@ -134,7 +134,16 @@ export async function resetPassword(token: string, newPassword: string): Promise
     });
     if (claimed.count === 0) throw invalidToken();
 
-    await tx.user.update({ where: { id: found.userId }, data: { passwordHash } });
+    await tx.user.update({
+      where: { id: found.userId },
+      data: {
+        passwordHash,
+        // Every existing session ends: whoever had the old password is signed out.
+        sessionVersion: { increment: 1 },
+        // Opening a link sent to the inbox proves the address is theirs.
+        ...(found.user.emailVerifiedAt ? {} : { emailVerifiedAt: now }),
+      },
+    });
 
     // Any other outstanding link for this account is dead too.
     await tx.passwordResetToken.updateMany({
