@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { BookingHeatmap } from "@/components/booking-heatmap";
 import {
   BarChart,
   Bar,
@@ -271,6 +272,8 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
           </div>
+
+          <BookingHeatmap />
 
           {/* Tables */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

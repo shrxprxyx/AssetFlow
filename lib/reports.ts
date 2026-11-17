@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { buildHeatmap } from "./heatmap";
 
 const MONTHS_BACK = 6;
 
@@ -187,4 +188,25 @@ export async function getReportsSummary() {
       attentionCount: dueForMaintenance.length,
     },
   };
+}
+
+// ── Booking heatmap (weekday x hour) ────────────────────────────────
+export async function getBookingHeatmap(opts: { days: number; timeZone: string; now?: Date }) {
+  const now = opts.now ?? new Date();
+  // buildHeatmap with no bookings gives us the exact window to query.
+  const shape = buildHeatmap([], { now, days: opts.days, timeZone: opts.timeZone, resourceCount: 0 });
+
+  const [resourceCount, bookings] = await Promise.all([
+    prisma.asset.count({ where: { isBookable: true } }),
+    prisma.resourceBooking.findMany({
+      where: {
+        status: { not: "CANCELLED" },
+        startTime: { lt: shape.to },
+        endTime: { gt: shape.from },
+      },
+      select: { startTime: true, endTime: true },
+    }),
+  ]);
+
+  return buildHeatmap(bookings, { now, days: opts.days, timeZone: opts.timeZone, resourceCount });
 }
