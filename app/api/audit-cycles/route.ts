@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { auditCycleSchema } from "@/lib/schemas";
 import { countAssetsInScope, validateAuditors } from "@/lib/audits";
 import { readJson, validationError } from "@/lib/http";
-import { logActivity } from "@/lib/logActivity";
+import { recordActivity, dispatchActivity } from "@/lib/outbox";
 import { requireAuth, requireWriteAuth } from "@/lib/guards";
 import { parsePagination, paginated } from "@/lib/pagination";
 
@@ -116,7 +116,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // The cycle and its auditors are created together or not at all.
+  // The cycle, its auditors and their events are created together or not at all
+  // (see lib/outbox.ts).
+  const eventIds: number[] = [];
   const cycle = await prisma.$transaction(async (tx) => {
     const created = await tx.auditCycle.create({
       data: {
@@ -132,26 +134,29 @@ export async function POST(req: NextRequest) {
     await tx.auditAssignment.createMany({
       data: auditors.ids.map((auditorId) => ({ cycleId: created.id, auditorId })),
     });
+    eventIds.push(
+      await recordActivity(tx, "audit_cycle_created", {
+        actorId: guard.user.userId,
+        resourceType: "AuditCycle",
+        resourceId: created.id,
+        changes: { name, scopeType, scopeId: created.scopeId, scopeLocation: created.scopeLocation, auditorIds: auditors.ids },
+      })
+    );
+    // Tell each auditor they were picked (the admin doesn't need telling).
+    for (const auditorId of auditors.ids) {
+      if (auditorId === guard.user.userId) continue;
+      eventIds.push(
+        await recordActivity(tx, "audit_assigned", {
+          actorId: guard.user.userId,
+          resourceType: "AuditCycle",
+          resourceId: created.id,
+          changes: { auditorId, cycleName: name },
+        })
+      );
+    }
     return created;
   });
-
-  await logActivity("audit_cycle_created", {
-    actorId: guard.user.userId,
-    resourceType: "AuditCycle",
-    resourceId: cycle.id,
-    changes: { name, scopeType, scopeId: cycle.scopeId, scopeLocation: cycle.scopeLocation, auditorIds: auditors.ids },
-  });
-
-  // Tell each auditor they were picked (the admin doesn't need telling).
-  for (const auditorId of auditors.ids) {
-    if (auditorId === guard.user.userId) continue;
-    await logActivity("audit_assigned", {
-      actorId: guard.user.userId,
-      resourceType: "AuditCycle",
-      resourceId: cycle.id,
-      changes: { auditorId, cycleName: name },
-    });
-  }
+  for (const id of eventIds) await dispatchActivity(id);
 
   return NextResponse.json({ cycle }, { status: 201 });
 }

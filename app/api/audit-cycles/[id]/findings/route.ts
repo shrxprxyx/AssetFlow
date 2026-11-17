@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auditFindingSchema } from "@/lib/schemas";
-import { logActivity } from "@/lib/logActivity";
+import { recordActivity, dispatchActivity } from "@/lib/outbox";
 import { requireWriteAuth } from "@/lib/guards";
 import { isAssetInScope, isAssignedAuditor } from "@/lib/audits";
 import { readJson, validationError } from "@/lib/http";
@@ -66,7 +66,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const existing = await prisma.auditFinding.findUnique({ where: { cycleId_assetId: { cycleId, assetId } } });
   const verdictChanged = !!existing && existing.status !== status;
 
-  const finding = await prisma.auditFinding.upsert({
+  let eventId = 0;
+  const finding = await prisma.$transaction(async (tx) => {
+    const saved = await tx.auditFinding.upsert({
     where: { cycleId_assetId: { cycleId, assetId } },
     create: { cycleId, assetId, auditorId, status, auditorNotes, conditionBefore: asset.condition },
     update: {
@@ -78,14 +80,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ? { resolutionStatus: "PENDING", resolvedBy: null, resolvedAt: null, resolutionNotes: null }
         : {}),
     },
+    });
+    // The event commits with the finding (see lib/outbox.ts).
+    eventId = await recordActivity(tx, "audit_finding_recorded", {
+      actorId: auditorId,
+      resourceType: "AuditFinding",
+      resourceId: saved.id,
+      changes: { assetId, status },
+    });
+    return saved;
   });
-
-  await logActivity("audit_finding_recorded", {
-    actorId: auditorId,
-    resourceType: "AuditFinding",
-    resourceId: finding.id,
-    changes: { assetId, status },
-  });
+  await dispatchActivity(eventId);
 
   return NextResponse.json({ finding });
 }

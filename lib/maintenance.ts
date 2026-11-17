@@ -29,7 +29,9 @@ export async function raiseMaintenanceRequest(
   requesterId: number,
   description: string,
   priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
-  photoUrl?: string
+  photoUrl?: string,
+  /** Recorded in the same transaction as the request (see lib/outbox.ts). */
+  activity?: ActivityFor<MaintenanceRequest>
 ) {
   const asset = await prisma.asset.findUnique({ where: { id: assetId }, select: { status: true } });
   if (!asset) {
@@ -39,9 +41,16 @@ export async function raiseMaintenanceRequest(
     throw notMaintainable(asset.status);
   }
 
-  return prisma.maintenanceRequest.create({
-    data: { assetId, requesterId, description, priority, photoUrl, status: "PENDING" },
+  let eventId: number | undefined;
+  const created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const request = await tx.maintenanceRequest.create({
+      data: { assetId, requesterId, description, priority, photoUrl, status: "PENDING" },
+    });
+    eventId = await recordFor(tx, activity, request);
+    return request;
   });
+  if (eventId) await dispatchActivity(eventId);
+  return created;
 }
 
 // ── Approve: PENDING -> APPROVED, asset -> UNDER_MAINTENANCE ──

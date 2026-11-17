@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promoteSchema } from "@/lib/schemas";
 import { prisma } from "@/lib/prisma";
-import { logActivity } from "@/lib/logActivity";
+import { recordActivity, dispatchActivity } from "@/lib/outbox";
 import { requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
 
@@ -36,17 +36,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "admin_target", message: "Admin roles can't be changed here" }, { status: 400 });
   }
 
-  const updated = await prisma.user.update({
-    where: { id: employeeId },
-    data: { role: parsed.data.role },
+  // The event commits with the change (see lib/outbox.ts).
+  let eventId = 0;
+  const updated = await prisma.$transaction(async (tx) => {
+    const saved = await tx.user.update({
+      where: { id: employeeId },
+      data: { role: parsed.data.role },
+    });
+    eventId = await recordActivity(tx, "role_changed", {
+      actorId: guard.user.userId,
+      resourceType: "User",
+      resourceId: employeeId,
+      changes: { from: target.role, to: saved.role },
+    });
+    return saved;
   });
-
-  await logActivity("role_changed", {
-    actorId: guard.user.userId,
-    resourceType: "User",
-    resourceId: employeeId,
-    changes: { from: target.role, to: updated.role },
-  });
+  await dispatchActivity(eventId);
 
   return NextResponse.json({ id: updated.id, role: updated.role });
 }

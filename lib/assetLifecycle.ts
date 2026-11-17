@@ -1,4 +1,5 @@
 import { prisma, Prisma } from "./prisma";
+import { recordActivity, dispatchActivity, type ActivitySpec } from "./outbox";
 
 type HttpError = { status: number; body: Record<string, unknown> };
 const fail = (status: number, error: string, message: string, field?: string): HttpError => ({
@@ -43,9 +44,15 @@ export async function departmentProblem(
   return null;
 }
 
-export async function updateAsset(assetId: number, patch: AssetPatch) {
+export async function updateAsset(
+  assetId: number,
+  patch: AssetPatch,
+  /** Recorded in the same transaction as the edit (see lib/outbox.ts). */
+  activity?: ActivitySpec
+) {
+  let eventId: number | undefined;
   try {
-    return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await lockAsset(tx, assetId);
 
       const asset = await tx.asset.findUnique({ where: { id: assetId } });
@@ -81,7 +88,7 @@ export async function updateAsset(assetId: number, patch: AssetPatch) {
         }
       }
 
-      return tx.asset.update({
+      const saved = await tx.asset.update({
         where: { id: assetId },
         data: patch,
         include: {
@@ -89,7 +96,11 @@ export async function updateAsset(assetId: number, patch: AssetPatch) {
           department: { select: { id: true, name: true } },
         },
       });
+      if (activity) eventId = await recordActivity(tx, activity.action, activity);
+      return saved;
     });
+    if (eventId) await dispatchActivity(eventId);
+    return updated;
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       throw fail(409, "serial_taken", "An asset with this serial number already exists", "serialNumber");
@@ -129,13 +140,25 @@ const DEFAULT_REASON: Record<LifecycleTarget, string> = {
   AVAILABLE: "Found and returned to service",
 };
 
+export type StatusOutcome = {
+  asset: { status: string };
+  from: string;
+  cancelledBookingIds: number[];
+};
+
 export async function changeAssetStatus(
   assetId: number,
   target: LifecycleTarget,
   actorId: number,
-  reason?: string
+  reason?: string,
+  /**
+   * Events to record in the same transaction as the change (see lib/outbox.ts),
+   * built from its outcome: the status event, plus one per cancelled booking.
+   */
+  activities?: (outcome: StatusOutcome) => ActivitySpec[]
 ) {
-  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  const eventIds: number[] = [];
+  const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await lockAsset(tx, assetId);
 
     const asset = await tx.asset.findUnique({ where: { id: assetId } });
@@ -201,6 +224,13 @@ export async function changeAssetStatus(
       },
     });
 
-    return { asset: updated, from: asset.status, cancelledBookingIds };
+    const outcome = { asset: updated, from: asset.status, cancelledBookingIds };
+    for (const spec of activities?.(outcome) ?? []) {
+      eventIds.push(await recordActivity(tx, spec.action, spec));
+    }
+    return outcome;
   });
+  // After the commit. Never throws: if it can't reach the queue, the relay delivers it.
+  for (const id of eventIds) await dispatchActivity(id);
+  return result;
 }

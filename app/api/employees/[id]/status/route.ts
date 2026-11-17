@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { logActivity } from "@/lib/logActivity";
+import { recordActivity, dispatchActivity } from "@/lib/outbox";
 import { requireWriteAuth } from "@/lib/guards";
 
 // Body: { status: "ACTIVE" | "INACTIVE" }. Admin only.
@@ -35,17 +35,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "not_found", message: "Employee not found" }, { status: 404 });
   }
 
-  const updated = await prisma.user.update({
-    where: { id: employeeId },
-    data: { status: body.status },
+  // The event commits with the change (see lib/outbox.ts).
+  let eventId = 0;
+  const updated = await prisma.$transaction(async (tx) => {
+    const saved = await tx.user.update({
+      where: { id: employeeId },
+      data: { status: body.status },
+    });
+    eventId = await recordActivity(tx, "employee_status_changed", {
+      actorId: guard.user.userId,
+      resourceType: "User",
+      resourceId: employeeId,
+      changes: { from: target.status, to: saved.status },
+    });
+    return saved;
   });
-
-  await logActivity("employee_status_changed", {
-    actorId: guard.user.userId,
-    resourceType: "User",
-    resourceId: employeeId,
-    changes: { from: target.status, to: updated.status },
-  });
+  await dispatchActivity(eventId);
 
   return NextResponse.json({ id: updated.id, status: updated.status });
 }

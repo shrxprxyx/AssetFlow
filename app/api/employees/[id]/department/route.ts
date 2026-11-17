@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { logActivity } from "@/lib/logActivity";
+import { recordActivity, dispatchActivity } from "@/lib/outbox";
 import { requireWriteAuth } from "@/lib/guards";
 
 // Body: { departmentId: number | null }. Admin only.
@@ -39,17 +39,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
   }
 
-  const updated = await prisma.user.update({
-    where: { id: employeeId },
-    data: { departmentId },
+  // The event commits with the change (see lib/outbox.ts).
+  let eventId = 0;
+  const updated = await prisma.$transaction(async (tx) => {
+    const saved = await tx.user.update({
+      where: { id: employeeId },
+      data: { departmentId },
+    });
+    eventId = await recordActivity(tx, "employee_department_changed", {
+      actorId: guard.user.userId,
+      resourceType: "User",
+      resourceId: employeeId,
+      changes: { from: target.departmentId, to: departmentId },
+    });
+    return saved;
   });
-
-  await logActivity("employee_department_changed", {
-    actorId: guard.user.userId,
-    resourceType: "User",
-    resourceId: employeeId,
-    changes: { from: target.departmentId, to: departmentId },
-  });
+  await dispatchActivity(eventId);
 
   return NextResponse.json({ id: updated.id, departmentId: updated.departmentId });
 }

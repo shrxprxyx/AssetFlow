@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { maintenanceRequestSchema } from "@/lib/schemas";
 import { raiseMaintenanceRequest } from "@/lib/maintenance";
-import { logActivity } from "@/lib/logActivity";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
@@ -73,12 +72,13 @@ export async function POST(req: NextRequest) {
   const { assetId, description, priority, photoUrl } = parsed.data;
 
   try {
-    const request = await raiseMaintenanceRequest(assetId, requesterId, description, priority, photoUrl);
-    await logActivity("maintenance_raised", {
+    // The event is recorded with the request (see lib/outbox.ts).
+    const request = await raiseMaintenanceRequest(assetId, requesterId, description, priority, photoUrl, (r) => ({
+      action: "maintenance_raised",
       actorId: requesterId,
       resourceType: "MaintenanceRequest",
-      resourceId: request.id,
-    });
+      resourceId: r.id,
+    }));
     return NextResponse.json({ request }, { status: 201 });
   } catch (e: any) {
     if (e?.status) return NextResponse.json(e.body, { status: e.status });

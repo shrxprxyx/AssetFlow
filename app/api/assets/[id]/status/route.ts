@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
-import { logActivity } from "@/lib/logActivity";
 import { changeAssetStatus } from "@/lib/assetLifecycle";
 
 const statusSchema = z.object({
@@ -11,14 +10,6 @@ const statusSchema = z.object({
   status: z.enum(["AVAILABLE", "LOST", "RETIRED", "DISPOSED"]),
   reason: z.string().max(500).optional(),
 });
-
-async function safeLog(action: string, opts: Parameters<typeof logActivity>[1]) {
-  try {
-    await logActivity(action, opts);
-  } catch (err) {
-    console.error(`activity log failed for ${action}`, err);
-  }
-}
 
 // POST /api/assets/:id/status  { status: "LOST" | "RETIRED" | "DISPOSED" | "AVAILABLE", reason? }
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -38,22 +29,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { status, reason } = parsed.data;
 
   try {
-    const result = await changeAssetStatus(id, status, actorId, reason);
-
-    await safeLog("asset_status_changed", {
-      actorId,
-      resourceType: "Asset",
-      resourceId: id,
-      changes: { from: result.from, to: result.asset.status, reason: reason ?? null },
-    });
-    // Tell the people whose bookings were cancelled (the notification skips the actor).
-    for (const bookingId of result.cancelledBookingIds) {
-      await safeLog("booking_cancelled", {
+    // The events are recorded in the change's own transaction (see lib/outbox.ts).
+    const result = await changeAssetStatus(id, status, actorId, reason, (o) => [
+      {
+        action: "asset_status_changed",
+        actorId,
+        resourceType: "Asset",
+        resourceId: id,
+        changes: { from: o.from, to: o.asset.status, reason: reason ?? null },
+      },
+      // Tell the people whose bookings were cancelled (the notification skips the actor).
+      ...o.cancelledBookingIds.map((bookingId) => ({
+        action: "booking_cancelled",
         actorId,
         resourceType: "ResourceBooking",
         resourceId: bookingId,
-      });
-    }
+      })),
+    ]);
 
     return NextResponse.json({
       asset: result.asset,

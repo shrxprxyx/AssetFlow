@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireWriteAuth } from "@/lib/guards";
 import { discrepancyResolutionSchema } from "@/lib/schemas";
 import { FLAGGED_STATUSES } from "@/lib/audits";
-import { logActivity } from "@/lib/logActivity";
+import { recordActivity, dispatchActivity } from "@/lib/outbox";
 import { readJson, validationError } from "@/lib/http";
 
 // PATCH /api/audit-cycles/:id/findings/:findingId/resolution
@@ -52,22 +52,27 @@ export async function PATCH(
     );
   }
 
-  const updated = await prisma.auditFinding.update({
-    where: { id: findingId },
-    data: {
-      resolutionStatus: decision,
-      resolvedBy: guard.user.userId,
-      resolvedAt: new Date(),
-      resolutionNotes: notes || null,
-    },
+  // The event commits with the decision (see lib/outbox.ts).
+  let eventId = 0;
+  const updated = await prisma.$transaction(async (tx) => {
+    const saved = await tx.auditFinding.update({
+      where: { id: findingId },
+      data: {
+        resolutionStatus: decision,
+        resolvedBy: guard.user.userId,
+        resolvedAt: new Date(),
+        resolutionNotes: notes || null,
+      },
+    });
+    eventId = await recordActivity(tx, "audit_discrepancy_resolved", {
+      actorId: guard.user.userId,
+      resourceType: "AuditFinding",
+      resourceId: findingId,
+      changes: { decision, assetId: finding.assetId, status: finding.status },
+    });
+    return saved;
   });
-
-  await logActivity("audit_discrepancy_resolved", {
-    actorId: guard.user.userId,
-    resourceType: "AuditFinding",
-    resourceId: findingId,
-    changes: { decision, assetId: finding.assetId, status: finding.status },
-  });
+  await dispatchActivity(eventId);
 
   return NextResponse.json({ finding: updated });
 }

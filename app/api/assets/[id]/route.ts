@@ -3,7 +3,6 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
-import { logActivity } from "@/lib/logActivity";
 import { updateAsset } from "@/lib/assetLifecycle";
 import { photoUrlSchema } from "@/lib/schemas";
 
@@ -77,17 +76,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!parsed.success) return validationError(parsed.error);
 
   try {
-    const asset = await updateAsset(id, parsed.data);
-    try {
-      await logActivity("asset_updated", {
-        actorId: guard.user.userId,
-        resourceType: "Asset",
-        resourceId: id,
-        changes: { fields: Object.keys(parsed.data) },
-      });
-    } catch (err) {
-      console.error("activity log failed for asset_updated", err);
-    }
+    // The event is recorded in the edit's own transaction (see lib/outbox.ts).
+    const asset = await updateAsset(id, parsed.data, {
+      action: "asset_updated",
+      actorId: guard.user.userId,
+      resourceType: "Asset",
+      resourceId: id,
+      changes: { fields: Object.keys(parsed.data) },
+    });
     return NextResponse.json(asset);
   } catch (e: any) {
     if (e?.status && e?.body) return NextResponse.json(e.body, { status: e.status });

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireWriteAuth } from "@/lib/guards";
 import { auditorsSchema } from "@/lib/schemas";
 import { validateAuditors } from "@/lib/audits";
-import { logActivity } from "@/lib/logActivity";
+import { recordActivity, dispatchActivity } from "@/lib/outbox";
 import { readJson, validationError } from "@/lib/http";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -51,26 +51,34 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     );
   }
 
-  const created = await prisma.auditAssignment.createMany({
-    data: auditors.ids.map((auditorId) => ({ cycleId: cycle.id, auditorId })),
-    skipDuplicates: true,
-  });
-
-  // Only the people who were actually added get told.
-  const nowAssigned = await prisma.auditAssignment.findMany({
-    where: { cycleId: cycle.id, auditorId: { in: auditors.ids } },
-    orderBy: { assignedAt: "desc" },
-    take: created.count,
-    select: { auditorId: true },
-  });
-  for (const { auditorId } of nowAssigned) {
-    await logActivity("audit_assigned", {
-      actorId: guard.user.userId,
-      resourceType: "AuditCycle",
-      resourceId: cycle.id,
-      changes: { auditorId, cycleName: cycle.name },
+  // The assignments and their events commit together (see lib/outbox.ts).
+  const eventIds: number[] = [];
+  const created = await prisma.$transaction(async (tx) => {
+    const made = await tx.auditAssignment.createMany({
+      data: auditors.ids.map((auditorId) => ({ cycleId: cycle.id, auditorId })),
+      skipDuplicates: true,
     });
-  }
+
+    // Only the people who were actually added get told.
+    const nowAssigned = await tx.auditAssignment.findMany({
+      where: { cycleId: cycle.id, auditorId: { in: auditors.ids } },
+      orderBy: { assignedAt: "desc" },
+      take: made.count,
+      select: { auditorId: true },
+    });
+    for (const { auditorId } of nowAssigned) {
+      eventIds.push(
+        await recordActivity(tx, "audit_assigned", {
+          actorId: guard.user.userId,
+          resourceType: "AuditCycle",
+          resourceId: cycle.id,
+          changes: { auditorId, cycleName: cycle.name },
+        })
+      );
+    }
+    return made;
+  });
+  for (const id of eventIds) await dispatchActivity(id);
 
   return NextResponse.json({ added: created.count }, { status: created.count > 0 ? 201 : 200 });
 }
@@ -107,13 +115,18 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
     );
   }
 
-  await prisma.auditAssignment.deleteMany({ where: { cycleId: cycle.id, auditorId } });
-  await logActivity("audit_auditor_removed", {
-    actorId: guard.user.userId,
-    resourceType: "AuditCycle",
-    resourceId: cycle.id,
-    changes: { auditorId },
+  // The removal and its event commit together (see lib/outbox.ts).
+  let eventId = 0;
+  await prisma.$transaction(async (tx) => {
+    await tx.auditAssignment.deleteMany({ where: { cycleId: cycle.id, auditorId } });
+    eventId = await recordActivity(tx, "audit_auditor_removed", {
+      actorId: guard.user.userId,
+      resourceType: "AuditCycle",
+      resourceId: cycle.id,
+      changes: { auditorId },
+    });
   });
+  await dispatchActivity(eventId);
 
   return NextResponse.json({ ok: true });
 }
