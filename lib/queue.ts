@@ -3,6 +3,9 @@ import IORedis from "ioredis";
 
 export const EVENTS_QUEUE = "events";
 export const SWEEPS_QUEUE = "sweeps";
+export const EMAILS_QUEUE = "emails";
+
+export type EmailJobData = { to: string; subject: string; text: string };
 
 export type EventJobData = {
   action: string;
@@ -24,10 +27,23 @@ export const EVENT_JOB_OPTIONS = {
   removeOnFail: { count: 5_000 }, // kept so failed jobs can be inspected
 };
 
+/**
+ * Emails are retried like events, but a finished job is deleted straight away:
+ * a password-reset email contains the reset link, which shouldn't sit in Redis.
+ */
+export const EMAIL_JOB_OPTIONS = {
+  attempts: 5,
+  backoff: { type: "exponential" as const, delay: 2_000 },
+  removeOnComplete: true,
+  removeOnFail: { age: 3_600 }, // seconds; reset links are dead long before this
+};
+
 // One producer connection per process, kept across Next.js hot reloads.
 const g = globalThis as unknown as {
   __eventsQueue?: Queue<EventJobData>;
   __producerRedis?: IORedis;
+  __emailsQueue?: Queue<EmailJobData>;
+  __emailsQueueRedis?: IORedis;
 };
 
 function producer() {
@@ -99,6 +115,50 @@ export async function enqueueNotification(
   } catch (err) {
     redisDownUntil = Date.now() + RETRY_REDIS_AFTER_MS;
     console.warn("[queue] could not enqueue", action, "- handling inline instead:", (err as Error).message);
+    return false;
+  }
+}
+
+/** The emails queue shares the producer's Redis connection. */
+function emailProducer() {
+  const { connection } = producer();
+  // If the producer connection was replaced, the old queue object is useless.
+  if (!g.__emailsQueue || g.__emailsQueueRedis !== connection) {
+    g.__emailsQueue = new Queue<EmailJobData>(EMAILS_QUEUE, {
+      connection,
+      defaultJobOptions: EMAIL_JOB_OPTIONS,
+    });
+    g.__emailsQueue.on("error", () => {
+      /* reported by enqueueEmail when a job can't be queued */
+    });
+    g.__emailsQueueRedis = connection;
+  }
+  return { queue: g.__emailsQueue, connection };
+}
+
+/**
+ * Puts a "send this email" job on the queue.
+ *
+ * Returns true  -> the worker process will send it.
+ * Returns false -> it was NOT queued (inline mode, or Redis is down) and the
+ *                  caller should send it itself.
+ */
+export async function enqueueEmail(email: EmailJobData): Promise<boolean> {
+  if (process.env.QUEUE_MODE === "inline") return false;
+  if (Date.now() < redisDownUntil) return false;
+
+  try {
+    const { queue, connection } = emailProducer();
+    if (!(await waitUntilReady(connection, 1_500))) {
+      redisDownUntil = Date.now() + RETRY_REDIS_AFTER_MS;
+      console.warn("[queue] Redis is not reachable - sending email inline");
+      return false;
+    }
+    await queue.add("send-email", email);
+    return true;
+  } catch (err) {
+    redisDownUntil = Date.now() + RETRY_REDIS_AFTER_MS;
+    console.warn("[queue] could not enqueue email - sending inline instead:", (err as Error).message);
     return false;
   }
 }

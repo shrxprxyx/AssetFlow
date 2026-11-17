@@ -4,8 +4,16 @@ import React, { useId, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
-import { AlertCircle, Eye, EyeOff, Loader2, Lock, Mail, User } from "lucide-react";
-import { loginSchema, signupSchema, type LoginInput, type SignupInput } from "@/lib/schemas";
+import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2, Lock, Mail, User } from "lucide-react";
+import { z } from "zod";
+import {
+  forgotPasswordSchema,
+  loginSchema,
+  signupSchema,
+  type ForgotPasswordInput,
+  type LoginInput,
+  type SignupInput,
+} from "@/lib/schemas";
 
 /* ───────────────────────── shared building blocks ───────────────────────── */
 
@@ -85,6 +93,28 @@ function ErrorAlert({ message }: { message: string }) {
   );
 }
 
+function SuccessAlert({ message }: { message: string }) {
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200"
+    >
+      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function BackToSignIn() {
+  return (
+    <p className="pt-1 text-center text-sm text-neutral-400">
+      <Link href="/login" className="font-medium text-white underline-offset-4 transition hover:underline">
+        Back to sign in
+      </Link>
+    </p>
+  );
+}
+
 function SubmitButton({
   loading,
   loadingText,
@@ -157,6 +187,15 @@ export function LoginForm({ onSubmit, isLoading = false }: LoginFormProps) {
         error={errors.password?.message}
         {...register("password")}
       />
+
+      <div className="-mt-2 text-right">
+        <Link
+          href="/forgot-password"
+          className="text-sm text-neutral-400 underline-offset-4 transition hover:text-white hover:underline"
+        >
+          Forgot password?
+        </Link>
+      </div>
 
       <SubmitButton loading={busy} loadingText="Signing in...">
         Sign in
@@ -258,6 +297,178 @@ export function SignupForm({ onSubmit, isLoading = false }: SignupFormProps) {
           className="font-medium text-white underline-offset-4 transition hover:underline"
         >
           Sign in
+        </Link>
+      </p>
+    </form>
+  );
+}
+
+/* ──────────────────────────── Forgot password ──────────────────────────── */
+
+export function ForgotPasswordForm() {
+  const [apiError, setApiError] = useState("");
+  const [sentMessage, setSentMessage] = useState("");
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<ForgotPasswordInput>({
+    resolver: zodResolver(forgotPasswordSchema),
+  });
+
+  const onSubmitForm = async (data: ForgotPasswordInput) => {
+    setApiError("");
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Could not send the reset link");
+      setSentMessage(body.message || "If an account exists for that email, a reset link has been sent.");
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Could not send the reset link");
+    }
+  };
+
+  // The same message is shown whether or not the address has an account.
+  if (sentMessage) {
+    return (
+      <div className="space-y-5">
+        <SuccessAlert message={sentMessage} />
+        <p className="text-sm text-neutral-400">
+          The link works once and expires after 30 minutes. Check your spam folder if it doesn&apos;t arrive.
+        </p>
+        <BackToSignIn />
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit(onSubmitForm)} className="space-y-5" noValidate>
+      {apiError && <ErrorAlert message={apiError} />}
+
+      <Field
+        label="Email"
+        icon={Mail}
+        type="email"
+        placeholder="you@company.com"
+        autoComplete="email"
+        error={errors.email?.message}
+        {...register("email")}
+      />
+
+      <SubmitButton loading={isSubmitting} loadingText="Sending...">
+        Send reset link
+      </SubmitButton>
+
+      <BackToSignIn />
+    </form>
+  );
+}
+
+/* ───────────────────────────── Reset password ───────────────────────────── */
+
+const newPasswordSchema = z
+  .object({
+    password: z.string().min(8, "Password must be at least 8 characters"),
+    confirmPassword: z.string().min(1, "Type the password again"),
+  })
+  .refine((d) => d.password === d.confirmPassword, {
+    message: "The two passwords don't match",
+    path: ["confirmPassword"],
+  });
+type NewPasswordInput = z.infer<typeof newPasswordSchema>;
+
+export function ResetPasswordForm({ token }: { token: string }) {
+  const [apiError, setApiError] = useState("");
+  const [done, setDone] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<NewPasswordInput>({
+    resolver: zodResolver(newPasswordSchema),
+  });
+
+  const onSubmitForm = async (data: NewPasswordInput) => {
+    setApiError("");
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password: data.password }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Could not reset the password");
+      setDone(true);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Could not reset the password");
+    }
+  };
+
+  if (!token) {
+    return (
+      <div className="space-y-5">
+        <ErrorAlert message="This reset link is incomplete. Request a new one." />
+        <p className="text-center text-sm text-neutral-400">
+          <Link
+            href="/forgot-password"
+            className="font-medium text-white underline-offset-4 transition hover:underline"
+          >
+            Request a new link
+          </Link>
+        </p>
+      </div>
+    );
+  }
+
+  if (done) {
+    return (
+      <div className="space-y-5">
+        <SuccessAlert message="Your password has been changed. You can sign in now." />
+        <BackToSignIn />
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit(onSubmitForm)} className="space-y-5" noValidate>
+      {apiError && <ErrorAlert message={apiError} />}
+
+      <Field
+        label="New password"
+        icon={Lock}
+        type="password"
+        placeholder="Create a new password"
+        autoComplete="new-password"
+        hint="At least 8 characters."
+        error={errors.password?.message}
+        {...register("password")}
+      />
+
+      <Field
+        label="Confirm new password"
+        icon={Lock}
+        type="password"
+        placeholder="Type it again"
+        autoComplete="new-password"
+        error={errors.confirmPassword?.message}
+        {...register("confirmPassword")}
+      />
+
+      <SubmitButton loading={isSubmitting} loadingText="Saving...">
+        Change password
+      </SubmitButton>
+
+      <p className="pt-1 text-center text-sm text-neutral-400">
+        Link expired?{" "}
+        <Link
+          href="/forgot-password"
+          className="font-medium text-white underline-offset-4 transition hover:underline"
+        >
+          Request a new one
         </Link>
       </p>
     </form>

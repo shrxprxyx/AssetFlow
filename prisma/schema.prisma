@@ -121,8 +121,24 @@ model User {
   auditFindings       AuditFinding[]
   notifications       Notification[]
   activityLogs        ActivityLog[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([status])
+}
+
+// One row per "forgot password" request. Only a SHA-256 hash of the token is
+// stored, so a leaked database can't be used to reset anyone's password.
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Department {

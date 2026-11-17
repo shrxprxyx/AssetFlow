@@ -5,10 +5,12 @@
  *
  * It does two things:
  *   1. handles "who should be notified about this?" jobs that the web app queues,
+ *      and sends the emails it queues (password reset links),
  *   2. runs the scheduled jobs: the overdue sweep (every 5 min) and the
  *      booking reminder / status tick (every minute).
  */
 import { notifyForActivity } from "../lib/notifications";
+import { sendMail } from "../lib/mailer";
 import { runOverdueSweep, runBookingTick } from "../lib/sweeps";
 import { prisma } from "../lib/prisma";
 import { startWorkers } from "./runtime";
@@ -18,6 +20,7 @@ const log = (...args: unknown[]) => console.log(new Date().toISOString(), "[work
 async function main() {
   const workers = await startWorkers({
     handleEvent: ({ action, options }) => notifyForActivity(action, options),
+    handleEmail: (email) => sendMail(email),
     sweeps: {
       "overdue-sweep": () => runOverdueSweep(),
       "booking-tick": () => runBookingTick(),

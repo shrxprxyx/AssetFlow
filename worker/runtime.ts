@@ -1,12 +1,21 @@
 import { Queue, Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
-import { EVENTS_QUEUE, SWEEPS_QUEUE, redisUrl, type EventJobData } from "../lib/queue";
+import {
+  EVENTS_QUEUE,
+  SWEEPS_QUEUE,
+  EMAILS_QUEUE,
+  redisUrl,
+  type EventJobData,
+  type EmailJobData,
+} from "../lib/queue";
 
 export type WorkerHandlers = {
   /** Turn one activity event into notifications. */
   handleEvent: (data: EventJobData) => Promise<void>;
   /** The scheduled jobs, by name. */
   sweeps: Record<string, () => Promise<unknown>>;
+  /** Send one queued email. Optional: without it, no email worker is started. */
+  handleEmail?: (data: EmailJobData) => Promise<void>;
 };
 
 export type ScheduleConfig = Record<string, number>; // job name -> run every N ms
@@ -48,7 +57,18 @@ export async function startWorkers(
     { connection, concurrency: 1 } // never run two sweeps at once
   );
 
-  for (const w of [eventWorker, sweepWorker]) {
+  const handleEmail = handlers.handleEmail;
+  const emailWorker = handleEmail
+    ? new Worker<EmailJobData>(
+        EMAILS_QUEUE,
+        async (job: Job<EmailJobData>) => handleEmail(job.data),
+        { connection, concurrency: 2 }
+      )
+    : null;
+
+  const workers: Worker[] = [eventWorker, sweepWorker, ...(emailWorker ? [emailWorker] : [])];
+
+  for (const w of workers) {
     w.on("failed", (job, err) =>
       log(`job ${job?.name} (#${job?.id}) failed, attempt ${job?.attemptsMade}:`, err.message)
     );
@@ -61,13 +81,15 @@ export async function startWorkers(
     await sweepQueue.upsertJobScheduler(name, { every }, { name });
   }
 
-  log(`started - listening on "${EVENTS_QUEUE}", scheduling: ${Object.keys(schedule).join(", ")}`);
+  const queues = emailWorker ? `"${EVENTS_QUEUE}" and "${EMAILS_QUEUE}"` : `"${EVENTS_QUEUE}"`;
+  log(`started - listening on ${queues}, scheduling: ${Object.keys(schedule).join(", ")}`);
 
   return {
     eventWorker,
     sweepWorker,
+    emailWorker,
     async close() {
-      await Promise.all([eventWorker.close(), sweepWorker.close()]);
+      await Promise.all(workers.map((w) => w.close()));
       await sweepQueue.close();
       await connection.quit().catch(() => undefined);
     },
