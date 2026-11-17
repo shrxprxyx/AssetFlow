@@ -105,6 +105,35 @@ function redis() {
   return g.__rateLimitRedis;
 }
 
+type ReadyClient = Pick<IORedis, "status" | "once" | "off">;
+
+/**
+ * The client starts connecting when it is created, and with the offline queue
+ * off a command sent before that finishes fails at once ("Stream isn't
+ * writeable"). So the first request after a start waits (at most 1 s) for the
+ * connection instead of being counted in memory with a scary warning.
+ *
+ * A client that is already reconnecting after a drop does NOT wait: Redis is
+ * down, and a request must never queue behind it.
+ */
+export function waitUntilReady(client: ReadyClient, timeoutMs = 1_000): Promise<void> {
+  if (client.status === "ready") return Promise.resolve();
+  if (client.status !== "connecting" && client.status !== "connect" && client.status !== "wait") {
+    return Promise.reject(new Error(`Redis connection is ${client.status}`));
+  }
+  return new Promise((resolve, reject) => {
+    const onReady = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      client.off("ready", onReady);
+      reject(new Error(`Redis not ready after ${timeoutMs} ms`));
+    }, timeoutMs);
+    client.once("ready", onReady);
+  });
+}
+
 function markRedisDown(err: unknown) {
   redisDownUntil = Date.now() + RETRY_REDIS_AFTER_MS;
   console.warn("[rateLimit] Redis unavailable, counting in memory for 10s:", (err as Error)?.message);
@@ -113,7 +142,9 @@ function markRedisDown(err: unknown) {
 async function hit(key: string, windowMs: number): Promise<{ count: number; ttlMs: number }> {
   if (redisEnabled() && Date.now() >= redisDownUntil) {
     try {
-      const [count, ttlMs] = (await redis().eval(HIT_SCRIPT, 1, key, String(windowMs))) as [number, number];
+      const client = redis();
+      await waitUntilReady(client);
+      const [count, ttlMs] = (await client.eval(HIT_SCRIPT, 1, key, String(windowMs))) as [number, number];
       return { count, ttlMs };
     } catch (err) {
       markRedisDown(err);
