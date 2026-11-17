@@ -16,7 +16,7 @@ import {
   LoadingState,
   Badge,
 } from "@/components/ui";
-import { activityApi, ApiError } from "@/lib/api-client";
+import { Pager } from "@/components/pager";
 import { formatDateTime } from "@/lib/utils";
 import { Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -54,6 +54,8 @@ const ACTION_LABELS: Record<string, { label: string; variant: string }> = {
   DEPARTMENT_CREATED: { label: "Department Created", variant: "info" },
 };
 
+const PAGE_SIZE = 25;
+
 const FILTER_TABS = [
   { value: "ALL", label: "All Activity" },
   { value: "ALERTS", label: "Alerts" },
@@ -66,50 +68,40 @@ export default function ActivityPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
   const [filter, setFilter] = useState<string>("ALL");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
 
+  // The tab is a server-side filter (?category=), so it applies to the whole
+  // log and the page count matches what the tab shows.
   useEffect(() => {
+    let cancelled = false;
+
     const fetchActivity = async () => {
       try {
         setLoading(true);
         setError("");
-        const data = await activityApi.list();
-        setLogs(Array.isArray(data) ? data : data.data || []);
+        const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+        if (filter !== "ALL") params.set("category", filter);
+        const res = await fetch(`/api/activity?${params}`);
+        const body = await res.json();
+        if (cancelled) return;
+        if (!res.ok) throw new Error(body.message || body.error || "Failed to load activity log");
+        setLogs(body.data ?? []);
+        setTotal(body.total ?? 0);
       } catch (err) {
-        if (err instanceof ApiError) {
-          setError(err.data.error || "Failed to load activity log");
-        } else if (err instanceof Error) {
-          setError(err.message);
-        } else {
-          setError("Failed to load activity log");
-        }
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load activity log");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchActivity();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [filter, page]);
 
-  const filteredLogs =
-    filter === "ALL"
-      ? logs
-      : logs.filter((log) => {
-          if (filter === "ALERTS") {
-            return [
-              "TRANSFER_REJECTED",
-              "MAINTENANCE_REJECTED",
-              "BOOKING_CANCELLED",
-              "ASSET_LOST",
-            ].includes(log.action);
-          }
-          if (filter === "APPROVALS") {
-            return log.action.includes("APPROVED") || log.action.includes("REJECTED");
-          }
-          if (filter === "BOOKINGS") {
-            return log.action.includes("BOOKING");
-          }
-          return true;
-        });
+  const filteredLogs = logs;
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -128,7 +120,10 @@ export default function ActivityPage() {
         {FILTER_TABS.map((tab) => (
           <button
             key={tab.value}
-            onClick={() => setFilter(tab.value)}
+            onClick={() => {
+              setFilter(tab.value);
+              setPage(1);
+            }}
             className={cn(
               "px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer",
               filter === tab.value
@@ -179,7 +174,7 @@ export default function ActivityPage() {
                 <TableBody>
                   {filteredLogs.map((log) => {
                     const actionInfo =
-                      ACTION_LABELS[log.action] ||
+                      ACTION_LABELS[log.action.toUpperCase()] ||
                       ({
                         label: log.action.replace(/_/g, " "),
                         variant: "default",
@@ -217,11 +212,16 @@ export default function ActivityPage() {
             </div>
           )}
 
-          {!loading && filteredLogs.length > 0 && (
-            <p className="text-xs text-muted-foreground mt-4">
-              Showing {filteredLogs.length} of {logs.length} activities
-            </p>
-          )}
+          <div className="mt-4">
+            <Pager
+              page={page}
+              pageSize={PAGE_SIZE}
+              total={total}
+              onPageChange={setPage}
+              disabled={loading}
+              noun="activities"
+            />
+          </div>
         </CardContent>
       </Card>
 

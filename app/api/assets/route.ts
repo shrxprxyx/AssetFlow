@@ -98,6 +98,8 @@ export async function GET(req: NextRequest) {
     const categoryParam = searchParams.get('categoryId');
     const statusParam = searchParams.get('status');
     const location = searchParams.get('location');
+    // Free-text search across tag, name, serial number and location.
+    const q = searchParams.get('q')?.trim();
 
     if (statusParam && !VALID_ASSET_STATUSES.includes(statusParam as AssetStatus)) {
       return NextResponse.json(
@@ -124,6 +126,9 @@ export async function GET(req: NextRequest) {
       ...(categoryId && { categoryId }),
       ...(statusParam && { status: statusParam as AssetStatus }),
       ...(location && { location: ci(location) }),
+      ...(q && {
+        OR: [{ assetTag: ci(q) }, { name: ci(q) }, { serialNumber: ci(q) }, { location: ci(q) }],
+      }),
     };
 
     const [assets, total] = await Promise.all([

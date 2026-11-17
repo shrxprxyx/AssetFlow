@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState } from "@/components/ui";
+import { Pager } from "@/components/pager";
 import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────
@@ -464,6 +465,8 @@ function CategoriesTab() {
 
 // ── Employees Tab ────────────────────────────────────────
 
+const EMPLOYEES_PAGE_SIZE = 25;
+
 function EmployeesTab() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -471,15 +474,19 @@ function EmployeesTab() {
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
   const [roleChoice, setRoleChoice] = useState<Record<number, string>>({});
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
 
   async function refetch() {
     setLoading(true);
     try {
       const [empRes, deptRes] = await Promise.all([
-        fetch("/api/employees?pageSize=100"),
+        fetch(`/api/employees?page=${page}&pageSize=${EMPLOYEES_PAGE_SIZE}`),
         fetch("/api/departments"),
       ]);
-      setEmployees((await empRes.json()).data ?? []);
+      const empData = await empRes.json();
+      setEmployees(empData.data ?? []);
+      setTotal(empData.total ?? 0);
       setDepartments(await deptRes.json());
     } catch {
       setError("Failed to load employees");
@@ -490,7 +497,8 @@ function EmployeesTab() {
 
   useEffect(() => {
     refetch();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   async function send(id: number, url: string, method: string, body: unknown) {
     setError("");
@@ -524,7 +532,7 @@ function EmployeesTab() {
       )}
 
       <p className="text-sm text-muted-foreground">
-        {employees.length} employee{employees.length !== 1 ? "s" : ""}. Assign departments, change roles,
+        {total} employee{total !== 1 ? "s" : ""}. Assign departments, change roles,
         and activate or deactivate accounts. Admin accounts can't be changed here.
       </p>
 
@@ -640,6 +648,15 @@ function EmployeesTab() {
           </table>
         </div>
       )}
+
+      <Pager
+        page={page}
+        pageSize={EMPLOYEES_PAGE_SIZE}
+        total={total}
+        onPageChange={setPage}
+        disabled={busyId !== null}
+        noun="employees"
+      />
     </div>
   );
 }

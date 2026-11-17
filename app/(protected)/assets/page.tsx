@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   ColumnDef,
@@ -17,6 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { LoadingState, EmptyState } from "@/components/ui";
+import { Pager } from "@/components/pager";
 import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────
@@ -148,6 +149,9 @@ function SortableHeader({
     </button>
   );
 }
+
+// Rows per page in the directory table.
+const PAGE_SIZE = 25;
 
 const inputClass =
   "h-10 px-3 rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-3 focus:ring-ring/50";
@@ -290,10 +294,17 @@ export default function AssetsPage() {
   // Server-side filters
   const [categoryId, setCategoryId] = useState("");
   const [status, setStatus] = useState("");
-  // Client-side filter — the API filters tag/serial/name as separate,
-  // AND-ed params, so a single free-text box is applied client-side across
-  // all three after the server-side category/status filters come back.
+  // The search box is also server-side (?q=), so it searches every asset, not
+  // just the page on screen. `search` is what's typed; `query` is what was
+  // last sent, a moment after typing stops.
   const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+
+  // Paging
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  // Each load gets a number, so a slow older response can't overwrite a newer one.
+  const loadSeq = useRef(0);
 
   // Register
   const [showForm, setShowForm] = useState(false);
@@ -314,32 +325,55 @@ export default function AssetsPage() {
   const [sorting, setSorting] = useState<SortingState>([]);
 
   async function refetch() {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams();
       if (categoryId) params.set("categoryId", categoryId);
       if (status) params.set("status", status);
-      params.set("pageSize", "100");
+      if (query) params.set("q", query);
+      params.set("page", String(page));
+      params.set("pageSize", String(PAGE_SIZE));
       const [assetsRes, catRes] = await Promise.all([
         fetch(`/api/assets?${params}`),
         fetch("/api/asset-categories"),
       ]);
       const assetsData = await assetsRes.json();
+      const categoriesData = await catRes.json();
+      if (seq !== loadSeq.current) return; // a newer load has started
       if (!assetsRes.ok) throw new Error(assetsData.message || assetsData.error || "Failed to load assets");
-      setAssets(assetsData.data ?? []);
-      setCategories(await catRes.json());
+
+      const rows: Asset[] = assetsData.data ?? [];
+      const count: number = assetsData.total ?? 0;
+      // The page we were on no longer exists (e.g. the list shrank): go to the last one.
+      if (rows.length === 0 && count > 0 && page > 1) {
+        setPage(Math.ceil(count / PAGE_SIZE));
+        return;
+      }
+      setAssets(rows);
+      setTotal(count);
+      setCategories(categoriesData);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load assets");
+      if (seq === loadSeq.current) setError(e instanceof Error ? e.message : "Failed to load assets");
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }
 
   useEffect(() => {
     refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryId, status]);
+  }, [categoryId, status, query, page]);
+
+  // Send the search a moment after typing stops, and start again from page 1.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const startEdit = useCallback((a: Asset) => {
     setShowForm(false);
@@ -369,17 +403,9 @@ export default function AssetsPage() {
     setPending({ asset, target });
   }, []);
 
-  const visibleAssets = useMemo(() => {
-    if (!search.trim()) return assets;
-    const q = search.trim().toLowerCase();
-    return assets.filter(
-      (a) =>
-        a.assetTag.toLowerCase().includes(q) ||
-        a.name.toLowerCase().includes(q) ||
-        (a.serialNumber ?? "").toLowerCase().includes(q) ||
-        (a.location ?? "").toLowerCase().includes(q)
-    );
-  }, [assets, search]);
+  // Search, category and status are all applied by the server now.
+  const visibleAssets = assets;
+  const hasFilters = Boolean(query || categoryId || status);
 
   const columns = useMemo<ColumnDef<Asset>[]>(() => {
     const base: ColumnDef<Asset>[] = [
@@ -623,7 +649,14 @@ export default function AssetsPage() {
               onChange={(e) => setSearch(e.target.value)}
               className={cn(inputClass, "flex-1")}
             />
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={cn(inputClass, "cursor-pointer")}>
+            <select
+              value={categoryId}
+              onChange={(e) => {
+                setCategoryId(e.target.value);
+                setPage(1);
+              }}
+              className={cn(inputClass, "cursor-pointer")}
+            >
               <option value="">All Categories</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id} className="cursor-pointer">
@@ -631,7 +664,14 @@ export default function AssetsPage() {
                 </option>
               ))}
             </select>
-            <select value={status} onChange={(e) => setStatus(e.target.value)} className={cn(inputClass, "cursor-pointer")}>
+            <select
+              value={status}
+              onChange={(e) => {
+                setStatus(e.target.value);
+                setPage(1);
+              }}
+              className={cn(inputClass, "cursor-pointer")}
+            >
               <option value="">All Statuses</option>
               {STATUS_OPTIONS.map((s) => (
                 <option key={s} value={s} className="cursor-pointer">
@@ -738,9 +778,9 @@ export default function AssetsPage() {
         <Card>
           <CardContent className="pt-6">
             <EmptyState
-              title={assets.length === 0 ? "No assets registered yet" : "No assets match your search"}
+              title={!hasFilters ? "No assets registered yet" : "No assets match your search"}
               description={
-                assets.length === 0
+                !hasFilters
                   ? canManage
                     ? "Register your first asset above."
                     : "Check back once an Asset Manager has registered some assets."
@@ -781,6 +821,9 @@ export default function AssetsPage() {
           </div>
         </Card>
       )}
+
+      {/* Column sorting applies to the page on screen. */}
+      <Pager page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} disabled={loading} noun="assets" />
     </div>
   );
 }
