@@ -62,7 +62,7 @@ EVT --> PGB
 SWEEP --> PGB
 ```
 
-The browser refreshes notifications on a timer; there is no live push yet (see Roadmap).
+New notifications reach the browser instantly over Server-Sent Events (see Live Notifications). A slow timer refresh remains as a safety net.
 
 ---
 
@@ -163,6 +163,7 @@ Frontend-->>User: Redirect to Dashboard
 
 - Signup always creates an **Employee**. Roles are assigned only by an Admin through the promote endpoint, which rejects `ADMIN` as a target.
 - Emails are stored trimmed and lowercase, and compared ignoring case, so `Priya@X.com` and `priya@x.com` are one account. Two simultaneous signups for one address can't both succeed.
+- **Forgot password:** the login page links to a reset form. A reset link is single-use, expires after 30 minutes, and only a hash of its token is stored. Until a mail provider is configured, the email is printed to the console of the worker (`npm run worker`), so copy the link from there.
 - The JWT carries the role for the UI only. **Every API route re-reads the role and account status from the database**, so a demoted or deactivated user loses access immediately, not when their token expires.
 
 ---
@@ -221,13 +222,16 @@ assetflow/
 │   ├── (protected)/           # dashboard, assets, allocations, bookings, maintenance, audits, reports, activity, org-setup
 │   ├── api/                   # route handlers: auth, assets, allocations, bookings, ...
 │   ├── login/
+│   ├── forgot-password/       # ask for a reset link
+│   ├── reset-password/        # choose a new password (from the emailed link)
 │   └── page.tsx               # redirects to /login
-├── components/                # app-sidebar, topbar, notifications-bell, ui/ (shadcn)
+├── components/                # app-sidebar, topbar, notifications-bell, pager, ui/ (shadcn)
 ├── lib/
 │   ├── prisma.ts              # Prisma client singleton
 │   ├── schemas.ts             # Zod schemas
 │   ├── guards.ts              # requireAuth(): role + active status read from the database
 │   ├── http.ts                # JSON body + validation-error helpers for routes
+│   ├── pagination.ts          # ?page / ?pageSize parsing + the { data, total, page, pageSize } response
 │   ├── allocations.ts         # allocate / return, row lock + unique-index backstop
 │   ├── transfers.ts           # transfer request and approval workflow
 │   ├── bookings.ts            # booking rules, row lock, cancellation
@@ -237,6 +241,8 @@ assetflow/
 │   ├── notifications.ts       # activity -> who should be notified
 │   ├── logActivity.ts         # audit entry + hands notification work to the queue
 │   ├── queue.ts               # BullMQ producer with fast-fail and circuit breaker
+│   ├── mailer.ts              # sendMail() (console for now) + queued delivery
+│   ├── passwordReset.ts       # reset tokens: issue, verify, consume
 │   ├── sweeps.ts              # overdue sweep + booking tick (plain functions, testable)
 │   └── userLookup.ts          # case-insensitive email lookup
 ├── worker/
@@ -293,14 +299,19 @@ Copy-Item .env.example .env
 npx auth secret    # paste the generated value into AUTH_SECRET
 ```
 
-`.env` needs four values (see `.env.example`):
+`.env` needs these values (see `.env.example`):
 
 ```
 DATABASE_URL="postgresql://assetflow:assetflow@localhost:6432/assetflow?schema=public&pgbouncer=true"
 DIRECT_URL="postgresql://assetflow:assetflow@localhost:5433/assetflow?schema=public"
 REDIS_URL="redis://localhost:6379"
 AUTH_SECRET="replace-with-a-long-random-string"
+APP_URL="http://localhost:3000"
 ```
+
+In production mode (`npm start`) NextAuth only accepts requests for a host it trusts: on a real server set `AUTH_URL` to the public address, and for local production runs (such as load tests) set `AUTH_TRUST_HOST="true"`. Development (`npm run dev`) needs neither.
+
+`APP_URL` is the address used in password-reset links. It is optional in development (the request's own address is used) and required in production.
 
 `DATABASE_URL` goes through PgBouncer; `DIRECT_URL` goes straight to Postgres because migrations can't use transaction pooling.
 
@@ -331,6 +342,44 @@ Seeded accounts (password `password123`):
 | `priya.shah@assetflow.com` | Employee |
 
 ---
+
+## Live Notifications
+
+The bell opens one `EventSource` to `GET /api/notifications/stream`. Whenever notifications are saved, whether by a web request or by the worker, their user ids are published on a Redis channel; every web process forwards that to the matching open streams. The event carries no text: the bell just reloads `GET /api/notifications`, so access rules stay in one place.
+
+- Up to 5 open streams per user (a sixth gets `429`).
+- A heartbeat every 25 seconds keeps idle connections alive through proxies. Behind nginx or similar, buffering must be off (the stream sends `X-Accel-Buffering: no`).
+- A stream ends after 30 minutes and the browser reconnects by itself, which re-checks the session.
+- If Redis is down, only the process that created the notification pushes it; the 60-second refresh catches the rest.
+
+## Audit Cycles
+
+1. **Create** (Admin): name, scope (all assets, a department, or a location), dates, and **one or more auditors** (Admin, Asset Manager or Department Head). Auditors are notified.
+2. **Check** (assigned auditors only): mark each asset in scope Verified, Missing or Damaged. Assets outside the cycle's scope are refused. There is one finding per asset per cycle, enforced by a unique index; changing a verdict sends an earlier decision back to pending.
+3. **Discrepancy report**: Missing and Damaged findings are collected automatically, with who flagged them.
+4. **Decide** (Asset Manager or Admin): approve (confirm) or reject (dismiss) each flagged asset.
+5. **Close** (Admin): refused while any flagged asset is undecided. Closing locks the cycle; approved Missing assets become Lost (their open allocation is closed and upcoming bookings cancelled); rejected ones are left alone.
+
+## Rate Limiting
+
+Counters live in Redis (one fixed window per key), so the limits hold across every web instance. If Redis is down they fall back to per-process memory instead of rejecting requests. A blocked request gets `429` with a `Retry-After` header and `{ "error": "rate_limited", "retryAfterSec": n }`.
+
+| What | Limit | Counted by |
+|---|---|---|
+| Sign-in | 10 attempts / 15 min | account email (cleared by a correct password) |
+| Sign-in | 30 attempts / 15 min | caller address, across all accounts |
+| Sign-up | 10 / hour | caller address |
+| Forgot password | 10 / hour | caller address |
+| Reset password | 20 / hour | caller address |
+| Any POST, PUT, PATCH, DELETE | 120 / minute | signed-in user |
+
+Reads are not limited. Load tests switch the limits off with `RATE_LIMIT_DISABLED=true` (see Load Testing). All numbers are in `lib/rateLimit.ts` (`LIMITS`). The caller address comes from `X-Forwarded-For`, so run the app behind a proxy or load balancer that sets it.
+
+## Load Testing
+
+`load-test/` has two k6 scripts and an integrity check. `race.js` fires 50 simultaneous requests at one asset or one room slot and expects exactly one winner. `mixed-load.js` runs 80 readers and 20 writers together and reports p95 latency per kind of request, the error rate, and whether the one shared "hot" asset was ever allocated twice. After a run, `integrity-check.sql` confirms the database holds no double allocation, overlapping booking or duplicate finding. Setup steps are in `load-test/README.md`; results are recorded in `load-test/RESULTS.md`.
+
+Rate limits would block 100 users on one machine, so load tests start the app with `RATE_LIMIT_DISABLED=true`. Only the exact value `true` switches them off, and a warning is printed. Never set it on a real server.
 
 ## Testing
 
@@ -366,8 +415,9 @@ The worker tests use Redis database 15 and are skipped automatically if Redis is
 | `TransferRequest` | assetId, fromHolderId, toHolderId, status | Pending, approved, rejected, cancelled |
 | `ResourceBooking` | resourceId, bookerId, startTime, endTime, status, reminderSent | **Exclusion constraint: no overlapping non-cancelled bookings per resource** |
 | `MaintenanceRequest` | assetId, requesterId, priority, status, technicianId | Pending, Approved, In Progress, Resolved / Rejected |
-| `AuditCycle` | name, scopeType, scopeId, startDate, endDate, status | |
-| `AuditFinding` | cycleId, assetId, auditorId, status | Closing a cycle flips `MISSING` assets to `LOST` |
+| `AuditCycle` | name, scopeType, scopeId, scopeLocation, startDate, endDate, status | Scope is `ALL`, a department, or a location text |
+| `AuditAssignment` | cycleId, auditorId | One row per assigned auditor; only they can record findings |
+| `AuditFinding` | cycleId, assetId, auditorId, status, resolutionStatus | One per asset per cycle (unique). `MISSING` / `DAMAGED` findings need an approve or reject decision. Closing flips approved-`MISSING` assets to `LOST`, closes their open allocation and cancels their upcoming bookings |
 | `Notification` | userId, type, message, relatedResourceType/Id, isRead | |
 | `ActivityLog` | actorId, action, resourceType, resourceId, changes (JSON) | Audit trail; every mutation calls `logActivity()` |
 
@@ -387,13 +437,24 @@ Base URL: `/api` (Next.js route handlers under `app/api/`).
 { "error": "asset_already_allocated", "message": "...", "currentlyHeldBy": { "id": 7, "name": "..." } }
 ```
 
-Sessions use NextAuth's JWT cookie. List endpoints currently return plain arrays (or `{ data, total }` with no paging); pagination is on the roadmap.
+Sessions use NextAuth's JWT cookie.
+
+**Pagination.** List endpoints take `?page=` (default 1) and `?pageSize=` (default 25, capped at 100) and answer:
+
+```json
+{ "data": [], "total": 137, "page": 2, "pageSize": 25 }
+```
+
+`total` counts every row matching the filters and the caller's role, not just the current page. This applies to assets, allocations, employees, activity, transfers, maintenance requests, audit cycles and asset history. Departments, categories and bookable resources are small master-data lists used as dropdowns and are returned whole; notifications return the latest 20; bookings are a per-day view.
 
 | Method | Route | Who | Purpose |
 |---|---|---|---|
 | `POST` | `/api/auth/signup` | Public | Creates an Employee account only |
+| `POST` | `/api/auth/forgot-password` | Public | Emails a reset link; answers the same whether or not the account exists |
+| `POST` | `/api/auth/reset-password` | Public | `{ token, password }`; the link works once and expires after 30 minutes |
 | `POST` | `/api/employees/:id/promote` | Admin | The only place a role is assigned |
-| `GET` | `/api/assets` | Signed in | Search / filter (case-insensitive) |
+| `GET` | `/api/assets` | Signed in | Paginated; `?q=` searches tag, name, serial and location (case-insensitive), plus `categoryId` and `status` filters |
+| `GET` | `/api/activity` | Signed in | Paginated audit log; `?category=ALERTS\|APPROVALS\|BOOKINGS` |
 | `POST` | `/api/assets` | Admin, Asset Manager | Register an asset |
 | `GET` / `PATCH` | `/api/assets/:id` | Signed in / Admin, Asset Manager | Read / edit details |
 | `POST` | `/api/assets/:id/status` | Admin, Asset Manager | Lost, found, retire, dispose |
@@ -406,10 +467,14 @@ Sessions use NextAuth's JWT cookie. List endpoints currently return plain arrays
 | `DELETE` | `/api/bookings/:id` | Booker, Admin, Asset Manager | Cancel an upcoming or in-progress booking |
 | `GET` / `POST` | `/api/maintenance-requests` | Signed in | List / raise |
 | `PATCH` | `/api/maintenance-requests/:id` | Managers, assigned technician | Approve, reject, assign, start, resolve |
-| `GET` / `POST` | `/api/audit-cycles` | Admin (create) | Cycles |
-| `PATCH` | `/api/audit-cycles/:id/findings` | Admin, Asset Manager | Verified / Missing / Damaged |
-| `POST` | `/api/audit-cycles/:id/close` | Admin | Locks the cycle, Missing becomes Lost |
+| `GET` / `POST` | `/api/audit-cycles` | Admin (create) | Cycles; create takes `auditorIds` (one or more) and, for `LOCATION` scope, `scopeLocation` |
+| `POST` / `DELETE` | `/api/audit-cycles/:id/auditors` | Admin | Add auditors / remove one (`?auditorId=`); one must remain |
+| `PATCH` | `/api/audit-cycles/:id/findings` | Assigned auditors | Verified / Missing / Damaged; the asset must be in the cycle's scope |
+| `GET` | `/api/audit-cycles/:id/discrepancies` | Admin, Asset Manager, Dept Head | Discrepancy report: flagged assets, who flagged them, decision status |
+| `PATCH` | `/api/audit-cycles/:id/findings/:findingId/resolution` | Admin, Asset Manager | `{ decision: APPROVED \| REJECTED }` |
+| `POST` | `/api/audit-cycles/:id/close` | Admin | Needs every flagged finding decided; approved Missing becomes Lost |
 | `GET` | `/api/notifications` | Signed in | Your notifications |
+| `GET` | `/api/notifications/stream` | Signed in | Event stream: `notification` when you get new ones (max 5 open per user) |
 | `GET` | `/api/reports`, `/api/dashboard` | Managers / signed in | Utilization, maintenance frequency, KPIs |
 
 ---
@@ -442,8 +507,7 @@ Sessions use NextAuth's JWT cookie. List endpoints currently return plain arrays
 
 ## Known Limitations
 
-- Closing an audit cycle marks missing assets `LOST` but does not close their open allocations (use *Mark found* to recover an asset).
-- Audit findings aren't checked against the cycle's scope, `LOCATION` scope behaves like `ALL`, and discrepancies have no approval step.
+- Department audits match assets by the department name appearing in the asset's location text, because `Asset` has no department column yet.
 - `MaintenanceRequest.technicianId` has no foreign key; the API validates the technician exists and is active when assigning.
 - Day-view boundaries for bookings use the server's timezone.
 
@@ -458,16 +522,20 @@ Done:
 - [x] Connection pooling (PgBouncer)
 - [x] Transfer approval workflow
 - [x] Asset lifecycle actions and booking cancellation
+- [x] Server-side pagination on list endpoints (`{ data, total, page, pageSize }`)
+- [x] Page controls with server-side search on the asset directory, activity log and employee directory
+- [x] Password reset (single-use, hashed, 30-minute links; emails sent through the queue)
 - [x] Automated test suite, including concurrency tests
+- [x] Real-time push (Server-Sent Events) replacing the notification timer
+- [x] Redis-backed rate limiting on auth and write routes
+- [x] Multi-auditor assignment and audit discrepancy approval
+- [x] k6 load tests: scripts, runbook and recorded results are in `load-test/` (100 users at 2 s think time: read p95 96 ms, write p95 309 ms, 0 % errors, one winner for the shared asset)
 
 Not built yet:
 
-- [ ] Real-time push (Server-Sent Events) replacing the notification timer
-- [ ] Refresh-token rotation, email verification, password reset
-- [ ] Pagination on all list endpoints
-- [ ] Redis-backed rate limiting on auth and write routes
+- [ ] Refresh-token rotation and email verification
+- [ ] A real mail provider (reset emails are currently printed to the worker's console)
+- [ ] Page controls on the remaining lists (allocations, transfers, audit cycles show the newest 100; maintenance is a board)
 - [ ] Outbox pattern for atomic event publication
 - [ ] File upload for asset and maintenance photos
-- [ ] Multi-auditor assignment and audit discrepancy approval
-- [ ] k6 load tests: allocation race (script exists) and mixed read/write load at 100 VUs, with recorded results
 - [ ] Extract the API into a standalone service (deliberately not done: a single Next.js app keeps the project simple to run)
