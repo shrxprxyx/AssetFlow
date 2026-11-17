@@ -8,6 +8,7 @@ import { LoadingState, EmptyState } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { TransferApprovals } from "@/components/transfer-approvals";
 import { Pager } from "@/components/pager";
+import { SearchSelect } from "@/components/search-select";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -66,11 +67,12 @@ function Pill({ className, children }: { className?: string; children: React.Rea
 
 // ── Page ───────────────────────────────────────────────
 
-const ALLOC_PAGE_SIZE = 15;
+const ALLOC_PAGE_SIZE = 20;
+
+const employeeLabel = (e: { firstName: string; lastName: string; departmentName?: string | null }) =>
+  `${e.firstName} ${e.lastName}${e.departmentName ? ` (${e.departmentName})` : ""}`;
 
 export default function AllocationsPage() {
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [activeAllocations, setActiveAllocations] = useState<Allocation[]>([]);
   const [allocPage, setAllocPage] = useState(1);
@@ -88,16 +90,20 @@ export default function AllocationsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Allocate form
-  const [assetId, setAssetId] = useState("");
+  // Chosen with a search box (the lists can be long), so we keep the whole row.
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const assetId = selectedAsset ? String(selectedAsset.id) : "";
   const [holderType, setHolderType] = useState<"EMPLOYEE" | "DEPARTMENT">("EMPLOYEE");
-  const [holderId, setHolderId] = useState("");
+  const [holder, setHolder] = useState<Employee | null>(null);
+  const holderId = holder ? String(holder.id) : "";
   const [holderDeptId, setHolderDeptId] = useState("");
   const [expectedReturnDate, setExpectedReturnDate] = useState("");
   const [allocating, setAllocating] = useState(false);
 
   // Conflict + transfer request state
   const [conflict, setConflict] = useState<ConflictInfo | null>(null);
-  const [transferToId, setTransferToId] = useState("");
+  const [transferTo, setTransferTo] = useState<Employee | null>(null);
+  const transferToId = transferTo ? String(transferTo.id) : "";
   const [transferReason, setTransferReason] = useState("");
   const [transferring, setTransferring] = useState(false);
 
@@ -115,19 +121,9 @@ export default function AllocationsPage() {
     setLoading(true);
     setError("");
     try {
-      const [assetsRes, employeesRes, departmentsRes] = await Promise.all([
-        fetch("/api/assets?pageSize=100"),
-        canAllocate ? fetch("/api/employees?pageSize=100") : Promise.resolve(null),
-        // Everyone needs the names, to show who holds a department-allocated asset.
-        fetch("/api/departments"),
-      ]);
-      const assetsData = await assetsRes.json();
-      const employeesData = employeesRes ? await employeesRes.json() : { data: [] };
+      // Everyone needs the names, to show who holds a department-allocated asset.
+      const departmentsRes = await fetch("/api/departments");
       const departmentsData = departmentsRes.ok ? await departmentsRes.json() : [];
-      if (!assetsRes.ok) throw new Error(assetsData.message || assetsData.error || "Failed to load assets");
-      // Paginated lists answer { data, total, page, pageSize }.
-      setAssets(assetsData.data ?? []);
-      setEmployees(employeesData.data ?? []);
       setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
       setRefreshKey((k) => k + 1);
     } catch (e) {
@@ -184,7 +180,16 @@ export default function AllocationsPage() {
       .finally(() => setHistoryLoading(false));
   }, [assetId]);
 
-  const selectedAsset = useMemo(() => assets.find((a) => String(a.id) === assetId) ?? null, [assets, assetId]);
+  // After an allocation or return, the chosen asset's holder has changed: reload it.
+  useEffect(() => {
+    const id = selectedAsset?.id;
+    if (!id) return;
+    fetch(`/api/assets/${id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((fresh) => fresh && setSelectedAsset((cur) => (cur && cur.id === fresh.id ? fresh : cur)))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   const departmentName = useMemo(() => {
     const names = new Map(departments.map((d) => [d.id, d.name]));
@@ -239,7 +244,7 @@ export default function AllocationsPage() {
       if (!res.ok) throw new Error(data.message || data.error || "Failed to allocate asset");
 
       setNotice(`Asset allocated successfully.`);
-      setHolderId("");
+      setHolder(null);
       setHolderDeptId("");
       setExpectedReturnDate("");
       refetch();
@@ -272,9 +277,9 @@ export default function AllocationsPage() {
 
       setNotice(data.message || "Asset transferred successfully.");
       setConflict(null);
-      setTransferToId("");
+      setTransferTo(null);
       setTransferReason("");
-      setHolderId("");
+      setHolder(null);
       refetch();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to transfer asset");
@@ -341,27 +346,22 @@ export default function AllocationsPage() {
             <CardContent className="pt-6 space-y-4">
               <h2 className="text-lg font-semibold text-foreground">Allocate an Asset</h2>
               <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <select
-                  value={assetId}
-                  onChange={(e) => {
-                    setAssetId(e.target.value);
+                <SearchSelect<Asset>
+                  endpoint="/api/assets"
+                  value={selectedAsset}
+                  onChange={(a) => {
+                    setSelectedAsset(a);
                     setConflict(null);
                     setNotice("");
                   }}
-                  className={inputClass}
-                >
-                  <option value="">Select asset</option>
-                  {assets.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.assetTag} — {a.name} ({a.status})
-                    </option>
-                  ))}
-                </select>
+                  label={(a) => `${a.assetTag} — ${a.name} (${a.status})`}
+                  placeholder="Search asset by tag, name or serial"
+                />
                 <select
                   value={holderType}
                   onChange={(e) => {
                     setHolderType(e.target.value as "EMPLOYEE" | "DEPARTMENT");
-                    setHolderId("");
+                    setHolder(null);
                     setHolderDeptId("");
                   }}
                   className={inputClass}
@@ -371,15 +371,14 @@ export default function AllocationsPage() {
                   <option value="DEPARTMENT">To a department</option>
                 </select>
                 {holderType === "EMPLOYEE" ? (
-                  <select value={holderId} onChange={(e) => setHolderId(e.target.value)} className={inputClass}>
-                    <option value="">Select employee</option>
-                    {employees.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.firstName} {e.lastName}
-                        {e.departmentName ? ` (${e.departmentName})` : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <SearchSelect<Employee>
+                    endpoint="/api/employees"
+                    params={{ status: "ACTIVE" }}
+                    value={holder}
+                    onChange={setHolder}
+                    label={employeeLabel}
+                    placeholder="Search employee by name or email"
+                  />
                 ) : (
                   <select
                     value={holderDeptId}
@@ -428,18 +427,14 @@ export default function AllocationsPage() {
                     transfer request instead:
                   </p>
                   <div className="grid sm:grid-cols-2 gap-3">
-                    <select
-                      value={transferToId}
-                      onChange={(e) => setTransferToId(e.target.value)}
-                      className={inputClass}
-                    >
-                      <option value="">Transfer to...</option>
-                      {employees.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.firstName} {e.lastName}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect<Employee>
+                      endpoint="/api/employees"
+                      params={{ status: "ACTIVE" }}
+                      value={transferTo}
+                      onChange={setTransferTo}
+                      label={employeeLabel}
+                      placeholder="Transfer to… (search by name)"
+                    />
                     <input
                       placeholder="Reason (optional)"
                       value={transferReason}

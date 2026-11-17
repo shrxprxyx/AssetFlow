@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { Pager } from "@/components/pager";
+import { SearchSelect } from "@/components/search-select";
 
 const PAGE_SIZE = 20;
 
@@ -64,8 +65,8 @@ export function TransferApprovals({
   const [busyId, setBusyId] = useState<number | null>(null);
 
   // "Request an asset" form (employees)
-  const [assets, setAssets] = useState<AssetOption[]>([]);
-  const [assetId, setAssetId] = useState("");
+  const [asset, setAsset] = useState<AssetOption | null>(null);
+  const assetId = asset ? String(asset.id) : "";
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -96,14 +97,6 @@ export function TransferApprovals({
   useEffect(() => {
     load();
   }, [load, refreshKey]);
-
-  useEffect(() => {
-    if (role !== "EMPLOYEE") return;
-    fetch("/api/assets?status=ALLOCATED&pageSize=100")
-      .then((r) => r.json())
-      .then((d) => setAssets(d.data ?? []))
-      .catch(() => setAssets([]));
-  }, [role, refreshKey]);
 
   async function act(id: number, action: "approve" | "reject" | "cancel") {
     setError("");
@@ -156,7 +149,7 @@ export function TransferApprovals({
       if (!res.ok) throw new Error(data.message || data.error || "Failed to submit request");
       const message = data.message || "Transfer request submitted.";
       setNotice(message);
-      setAssetId("");
+      setAsset(null);
       setReason("");
       await load();
       onChanged?.(message);
@@ -168,7 +161,6 @@ export function TransferApprovals({
   }
 
   const pendingCount = pendingTotal;
-  const requestable = assets.filter((a) => a.currentHolder?.id !== myId);
 
   return (
     <div className="space-y-4">
@@ -199,15 +191,20 @@ export function TransferApprovals({
               Need an asset someone else is holding? Ask for it here. A manager approves before it moves.
             </p>
             <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-3">
-              <select value={assetId} onChange={(e) => setAssetId(e.target.value)} className={inputClass}>
-                <option value="">Select an asset</option>
-                {requestable.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.assetTag} — {a.name}
-                    {a.currentHolder ? ` (held by ${a.currentHolder.firstName} ${a.currentHolder.lastName})` : ""}
-                  </option>
-                ))}
-              </select>
+              <SearchSelect<AssetOption>
+                endpoint="/api/assets"
+                params={{ status: "ALLOCATED" }}
+                // You can't ask for something you already hold.
+                filter={(a) => a.currentHolder?.id !== myId}
+                value={asset}
+                onChange={setAsset}
+                label={(a) =>
+                  `${a.assetTag} — ${a.name}${
+                    a.currentHolder ? ` (held by ${a.currentHolder.firstName} ${a.currentHolder.lastName})` : ""
+                  }`
+                }
+                placeholder="Search the asset you need"
+              />
               <input
                 placeholder="Reason (optional)"
                 value={reason}

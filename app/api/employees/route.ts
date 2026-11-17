@@ -21,6 +21,8 @@ export async function GET(req: NextRequest) {
     const departmentId = searchParams.get('departmentId');
     const roleParam = searchParams.get('role');
     const statusParam = searchParams.get('status');
+    // Search by name or email. Every word must match somewhere, so "priya sh" finds Priya Sharma.
+    const words = (searchParams.get('q') ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 5);
 
     // Query params arrive as plain strings - Prisma's `where` expects the
     // real Role/UserStatus enums, so validate + narrow instead of casting
@@ -58,6 +60,15 @@ export async function GET(req: NextRequest) {
       ...(departmentFilter !== undefined && { departmentId: departmentFilter }),
       ...(role && { role }),
       ...(status && { status }),
+      ...(words.length > 0 && {
+        AND: words.map((w) => ({
+          OR: [
+            { firstName: { contains: w, mode: 'insensitive' as const } },
+            { lastName: { contains: w, mode: 'insensitive' as const } },
+            { email: { contains: w, mode: 'insensitive' as const } },
+          ],
+        })),
+      }),
     };
 
     const [employees, total] = await Promise.all([
