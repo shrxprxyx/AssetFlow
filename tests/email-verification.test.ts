@@ -66,6 +66,65 @@ describe("email verification", () => {
       expect(stored.tokenHash).not.toContain(lastToken());
     });
 
+    describe("signing up again with an address that is not verified yet", () => {
+      it("sends a fresh link, makes no second account, and changes nothing about the first", async () => {
+        await join();
+        const before = await userByEmail();
+        await ageTokens();
+
+        const res = await call(signup, "POST", "/api/auth/signup", {
+          firstName: "Someone",
+          lastName: "Else",
+          email: "Priya@Example.com",
+          password: "a-different-password-9",
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.emailVerificationRequired).toBe(true);
+        expect(res.body.id).toBeUndefined();
+        expect(await prisma.user.count()).toBe(1);
+        expect(mails()).toHaveLength(2);
+        const after = await userByEmail();
+        expect(after.passwordHash).toBe(before.passwordHash);
+        expect(after.firstName).toBe("Priya");
+      });
+
+      it("kills the earlier link when the fresh one is sent", async () => {
+        await join();
+        const first = lastToken();
+        await ageTokens();
+        await join();
+
+        expect((await confirm(first)).status).toBe(400);
+        expect((await confirm(lastToken())).status).toBe(200);
+      });
+
+      it("sends at most one email a minute", async () => {
+        await join();
+        await join();
+        await join();
+
+        expect(mails()).toHaveLength(1);
+      });
+
+      it("still says the address is taken once it is verified", async () => {
+        await join();
+        await confirm(lastToken());
+
+        const res = await join();
+
+        expect(res.status).toBe(409);
+        expect(res.body.error).toBe("email_taken");
+      });
+
+      it("still says the address is taken for a deactivated account", async () => {
+        await join();
+        await prisma.user.updateMany({ data: { status: "INACTIVE" } });
+
+        expect((await join()).status).toBe(409);
+      });
+    });
+
     it("still creates the account when the email cannot be sent", async () => {
       vi.mocked(deliverEmail).mockRejectedValueOnce(new Error("smtp down"));
 

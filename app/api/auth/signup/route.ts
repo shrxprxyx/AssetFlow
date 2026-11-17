@@ -4,7 +4,7 @@ import { signupSchema } from "@/lib/schemas";
 import { prisma, Prisma } from "@/lib/prisma";
 import { findUserByEmail, normalizeEmail } from "@/lib/userLookup";
 import { readJson, validationError } from "@/lib/http";
-import { sendVerificationEmail } from "@/lib/emailVerification";
+import { resendVerification, sendVerificationEmail } from "@/lib/emailVerification";
 import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/lib/rateLimit";
 
 const emailTaken = () =>
@@ -29,7 +29,18 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return validationError(parsed.error);
   const { firstName, lastName, email, password } = parsed.data;
 
-  if (await findUserByEmail(email)) return emailTaken();
+  const existing = await findUserByEmail(email);
+  if (existing) {
+    // Someone who never opened their link (or mistyped something) can try again.
+    // Nothing about the pending account changes - not the password, not the name -
+    // so a stranger typing this address can't take over a signup that isn't theirs.
+    // They just get a fresh link (at most one a minute) at the address's own inbox.
+    if (!existing.emailVerifiedAt && existing.status === "ACTIVE") {
+      await resendVerification(email, new URL(req.url).origin);
+      return NextResponse.json({ email: existing.email, emailVerificationRequired: true }, { status: 201 });
+    }
+    return emailTaken();
+  }
 
   const passwordHash = await bcrypt.hash(password, 10);
 

@@ -29,6 +29,8 @@ describe("signup", () => {
 
   it("treats addresses that differ only by letter case as the same account", async () => {
     expect((await join(person("a@x.com"))).status).toBe(201);
+    // Only a verified account blocks the address; an unverified one lets the owner try again (tested elsewhere).
+    await prisma.user.updateMany({ data: { emailVerifiedAt: new Date() } });
 
     for (const again of ["a@x.com", "A@X.COM", " A@x.com "]) {
       const res = await join(person(again));
@@ -40,7 +42,7 @@ describe("signup", () => {
 
   it("refuses an address that matches an older account created with capital letters", async () => {
     await prisma.user.create({
-      data: { email: "Legacy@X.com", passwordHash: "x", firstName: "Old", lastName: "Account" },
+      data: { email: "Legacy@X.com", passwordHash: "x", firstName: "Old", lastName: "Account", emailVerifiedAt: new Date() },
     });
 
     const res = await join(person("legacy@x.com"));
@@ -56,9 +58,10 @@ describe("signup", () => {
       )
     );
 
-    expect(results.filter((r) => r.status === 201)).toHaveLength(1);
-    expect(results.filter((r) => r.status === 409)).toHaveLength(7);
-    expect(results.every((r) => r.status !== 500)).toBe(true);
+    // One request creates the account. The others either lose the database race (409) or find the
+    // new, still unverified account and just get a fresh link (201 without an id). Never an error, never a second account.
+    expect(results.every((r) => r.status === 201 || r.status === 409)).toBe(true);
+    expect(results.filter((r) => r.body?.id !== undefined)).toHaveLength(1);
     expect(await prisma.user.count()).toBe(1);
   });
 

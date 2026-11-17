@@ -34,6 +34,10 @@ export default function SignupPage() {
             We sent a verification link to <strong className="text-white">{submittedEmail}</strong>. Open it, then sign in.
           </p>
           <p className="text-neutral-400">
+            If you had already started signing up with this address, your first password still applies. Forgot it? Use
+            &ldquo;Forgot password&rdquo; on the sign-in page.
+          </p>
+          <p className="text-neutral-400">
             It expires after 24 hours. Didn&apos;t get it?{" "}
             <Link href="/verify-email" className="text-white underline-offset-4 hover:underline">
               Send a new link
