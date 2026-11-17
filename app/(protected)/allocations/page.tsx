@@ -26,10 +26,14 @@ type Employee = {
   departmentName?: string;
 };
 
+type Department = { id: number; name: string; status: string };
+
 type Allocation = {
   id: number;
   assetId: number;
   holderId: number | null;
+  holderDeptId: number | null;
+  holderType: "EMPLOYEE" | "DEPARTMENT";
   allocatedDate: string;
   expectedReturnDate: string | null;
   status: string;
@@ -64,11 +68,13 @@ function Pill({ className, children }: { className?: string; children: React.Rea
 export default function AllocationsPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [activeAllocations, setActiveAllocations] = useState<Allocation[]>([]);
   const { data: session } = useSession();
   // Only these roles can hand assets out. (The API enforces this too; this just
   // stops showing a form that would be rejected.)
-  const canAllocate = ["ADMIN", "ASSET_MANAGER", "DEPARTMENT_HEAD"].includes(session?.user?.role ?? "");
+  const role = session?.user?.role ?? "";
+  const canAllocate = ["ADMIN", "ASSET_MANAGER", "DEPARTMENT_HEAD"].includes(role);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -77,7 +83,9 @@ export default function AllocationsPage() {
 
   // Allocate form
   const [assetId, setAssetId] = useState("");
+  const [holderType, setHolderType] = useState<"EMPLOYEE" | "DEPARTMENT">("EMPLOYEE");
   const [holderId, setHolderId] = useState("");
+  const [holderDeptId, setHolderDeptId] = useState("");
   const [expectedReturnDate, setExpectedReturnDate] = useState("");
   const [allocating, setAllocating] = useState(false);
 
@@ -101,18 +109,22 @@ export default function AllocationsPage() {
     setLoading(true);
     setError("");
     try {
-      const [assetsRes, employeesRes, allocationsRes] = await Promise.all([
+      const [assetsRes, employeesRes, allocationsRes, departmentsRes] = await Promise.all([
         fetch("/api/assets"),
         canAllocate ? fetch("/api/employees") : Promise.resolve(null),
         fetch("/api/allocations?status=ACTIVE"),
+        // Everyone needs the names, to show who holds a department-allocated asset.
+        fetch("/api/departments"),
       ]);
       const assetsData = await assetsRes.json();
       const employeesData = employeesRes ? await employeesRes.json() : [];
       const allocationsData = await allocationsRes.json();
+      const departmentsData = departmentsRes.ok ? await departmentsRes.json() : [];
       if (!assetsRes.ok) throw new Error(assetsData.message || assetsData.error || "Failed to load assets");
       setAssets(assetsData);
       setEmployees(Array.isArray(employeesData) ? employeesData : []);
       setActiveAllocations(Array.isArray(allocationsData) ? allocationsData : []);
+      setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
       setRefreshKey((k) => k + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load data");
@@ -141,6 +153,19 @@ export default function AllocationsPage() {
 
   const selectedAsset = useMemo(() => assets.find((a) => String(a.id) === assetId) ?? null, [assets, assetId]);
 
+  const departmentName = useMemo(() => {
+    const names = new Map(departments.map((d) => [d.id, d.name]));
+    return (id: number | null) => (id ? names.get(id) ?? `Department #${id}` : "—");
+  }, [departments]);
+
+  // Departments an asset can be handed to: active ones, and for a Department
+  // Head only their own (the API rejects anything else with a 403).
+  const allocatableDepartments = useMemo(() => {
+    const active = departments.filter((d) => d.status === "ACTIVE");
+    if (role !== "DEPARTMENT_HEAD") return active;
+    return active.filter((d) => d.id === session?.user?.departmentId);
+  }, [departments, role, session?.user?.departmentId]);
+
   async function allocate() {
     setError("");
     setNotice("");
@@ -149,8 +174,12 @@ export default function AllocationsPage() {
       setError("Select an asset");
       return;
     }
-    if (!holderId) {
+    if (holderType === "EMPLOYEE" && !holderId) {
       setError("Select an employee to allocate to");
+      return;
+    }
+    if (holderType === "DEPARTMENT" && !holderDeptId) {
+      setError("Select a department to allocate to");
       return;
     }
     setAllocating(true);
@@ -160,23 +189,25 @@ export default function AllocationsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           assetId: Number(assetId),
-          holderId: Number(holderId),
-          holderType: "EMPLOYEE",
+          holderType,
+          ...(holderType === "EMPLOYEE"
+            ? { holderId: Number(holderId) }
+            : { holderDeptId: Number(holderDeptId) }),
           expectedReturnDate: expectedReturnDate || undefined,
         }),
       });
       const data = await res.json();
 
       if (res.status === 409) {
-        // Conflict — asset already has an active allocation. currently_held_by
-        // is snake_case on the wire (see app/api/allocations/route.ts).
-        setConflict(data.currently_held_by ?? null);
+        // Conflict — asset already has an active allocation.
+        setConflict(data.currentlyHeldBy ?? data.currently_held_by ?? null);
         return;
       }
       if (!res.ok) throw new Error(data.message || data.error || "Failed to allocate asset");
 
       setNotice(`Asset allocated successfully.`);
       setHolderId("");
+      setHolderDeptId("");
       setExpectedReturnDate("");
       refetch();
     } catch (e) {
@@ -276,7 +307,7 @@ export default function AllocationsPage() {
           <Card>
             <CardContent className="pt-6 space-y-4">
               <h2 className="text-lg font-semibold text-foreground">Allocate an Asset</h2>
-              <div className="grid sm:grid-cols-3 gap-3">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <select
                   value={assetId}
                   onChange={(e) => {
@@ -293,15 +324,43 @@ export default function AllocationsPage() {
                     </option>
                   ))}
                 </select>
-                <select value={holderId} onChange={(e) => setHolderId(e.target.value)} className={inputClass}>
-                  <option value="">Select employee</option>
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.firstName} {e.lastName}
-                      {e.departmentName ? ` (${e.departmentName})` : ""}
-                    </option>
-                  ))}
+                <select
+                  value={holderType}
+                  onChange={(e) => {
+                    setHolderType(e.target.value as "EMPLOYEE" | "DEPARTMENT");
+                    setHolderId("");
+                    setHolderDeptId("");
+                  }}
+                  className={inputClass}
+                  title="Allocate to an employee or to a whole department"
+                >
+                  <option value="EMPLOYEE">To an employee</option>
+                  <option value="DEPARTMENT">To a department</option>
                 </select>
+                {holderType === "EMPLOYEE" ? (
+                  <select value={holderId} onChange={(e) => setHolderId(e.target.value)} className={inputClass}>
+                    <option value="">Select employee</option>
+                    {employees.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.firstName} {e.lastName}
+                        {e.departmentName ? ` (${e.departmentName})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    value={holderDeptId}
+                    onChange={(e) => setHolderDeptId(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Select department</option>
+                    {allocatableDepartments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <input
                   type="date"
                   value={expectedReturnDate}
@@ -397,7 +456,11 @@ export default function AllocationsPage() {
                                 {a.asset ? `${a.asset.assetTag} — ${a.asset.name}` : `#${a.assetId}`}
                               </td>
                               <td className="px-4 py-3 text-muted-foreground">
-                                {a.holder ? `${a.holder.firstName} ${a.holder.lastName}` : "—"}
+                                {a.holder
+                                  ? `${a.holder.firstName} ${a.holder.lastName}`
+                                  : a.holderDeptId
+                                    ? `${departmentName(a.holderDeptId)} (department)`
+                                    : "—"}
                               </td>
                               <td className="px-4 py-3 text-muted-foreground">
                                 {new Date(a.allocatedDate).toLocaleDateString()}
