@@ -203,7 +203,7 @@ describe("paginated list endpoints", () => {
     expect(res.body.pageSize).toBe(3);
   });
 
-  it("maintenance requests: paginated, and still returns the asset picker list", async () => {
+  it("maintenance requests: paginated, and no longer ships every asset with each page", async () => {
     const asset = await createAsset();
     for (let i = 0; i < 4; i++) {
       await prisma.maintenanceRequest.create({
@@ -215,7 +215,8 @@ describe("paginated list endpoints", () => {
 
     expect(res.body.data).toHaveLength(3);
     expect(res.body.total).toBe(4);
-    expect(res.body.assets).toHaveLength(1);
+    // The raise form finds assets by searching /api/assets instead.
+    expect(res.body.assets).toBeUndefined();
   });
 
   it("audit cycles: paginated, and still returns the departments list", async () => {

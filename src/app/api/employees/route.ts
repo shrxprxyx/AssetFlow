@@ -28,7 +28,9 @@ export async function GET(req: NextRequest) {
     // real Role/UserStatus enums, so validate + narrow instead of casting
     // blindly (a bad ?role=foo should 400, not crash Prisma or silently
     // return unfiltered results).
-    if (roleParam && !VALID_ROLES.includes(roleParam as Role)) {
+    // ?role=ADMIN or ?role=ADMIN,ASSET_MANAGER (the audit pickers need several at once).
+    const roles = (roleParam ?? '').split(',').map((r) => r.trim()).filter(Boolean);
+    if (roleParam && (roles.length === 0 || roles.some((r) => !VALID_ROLES.includes(r as Role)))) {
       return NextResponse.json(
         { error: 'validation_error', message: `role must be one of ${VALID_ROLES.join(', ')}`, field: 'role' },
         { status: 400 }
@@ -45,7 +47,6 @@ export async function GET(req: NextRequest) {
     if (!paging.ok) return paging.response;
     const { skip, take } = paging.page;
 
-    const role = roleParam as Role | null;
     const status = statusParam as UserStatus | null;
 
     // A Department Head is pinned to their own department no matter what the
@@ -58,7 +59,8 @@ export async function GET(req: NextRequest) {
 
     const where: Prisma.UserWhereInput = {
       ...(departmentFilter !== undefined && { departmentId: departmentFilter }),
-      ...(role && { role }),
+      ...(roles.length === 1 && { role: roles[0] as Role }),
+      ...(roles.length > 1 && { role: { in: roles as Role[] } }),
       ...(status && { status }),
       ...(words.length > 0 && {
         AND: words.map((w) => ({

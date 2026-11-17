@@ -52,3 +52,53 @@ describe("GET /api/employees?q=", () => {
     expect(res.body.data[0].firstName).toBe("Priya");
   });
 });
+
+describe("GET /api/employees?role= (one role, or several separated by commas)", () => {
+  beforeEach(async () => {
+    await resetDb();
+    signInAs(await createUser({ role: "ADMIN" }));
+    for (const [firstName, role] of [
+      ["Asha", "ASSET_MANAGER"],
+      ["Dev", "DEPARTMENT_HEAD"],
+      ["Esha", "EMPLOYEE"],
+    ] as const) {
+      await prisma.user.create({
+        data: { firstName, lastName: "T", email: `${firstName}@role.test`.toLowerCase(), passwordHash: "x", role, status: "ACTIVE" },
+      });
+    }
+  });
+
+  const roles = async (query: string) =>
+    (await call(listEmployees, "GET", `/api/employees?${query}`)).body.data.map((e: { role: string }) => e.role).sort();
+
+  it("still filters by a single role", async () => {
+    expect(await roles("role=EMPLOYEE")).toEqual(["EMPLOYEE"]);
+  });
+
+  it("accepts several roles at once", async () => {
+    expect(await roles("role=ADMIN,ASSET_MANAGER,DEPARTMENT_HEAD")).toEqual(["ADMIN", "ASSET_MANAGER", "DEPARTMENT_HEAD"]);
+  });
+
+  it("tolerates spaces and repeats in the list", async () => {
+    expect(await roles("role=ASSET_MANAGER, ASSET_MANAGER ,EMPLOYEE")).toEqual(["ASSET_MANAGER", "EMPLOYEE"]);
+  });
+
+  it("refuses the whole request when one role in the list is unknown", async () => {
+    for (const bad of ["ADMIN,WIZARD", "WIZARD", ",", ",,"]) {
+      const res = await call(listEmployees, "GET", `/api/employees?role=${bad}`);
+      expect(res.status).toBe(400);
+      expect(res.body.field).toBe("role");
+    }
+  });
+
+  it("ignores an empty role, like no filter", async () => {
+    expect((await roles("role=")).length).toBe(4);
+  });
+
+  it("combines with search and status, and reports the right total", async () => {
+    const res = await call(listEmployees, "GET", "/api/employees?role=ASSET_MANAGER,DEPARTMENT_HEAD&q=asha&status=ACTIVE");
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.data[0].firstName).toBe("Asha");
+  });
+});

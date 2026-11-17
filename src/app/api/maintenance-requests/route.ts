@@ -36,9 +36,7 @@ export async function GET(req: NextRequest) {
       : { OR: [{ requesterId: user.userId }, { technicianId: user.userId }] };
   }
 
-  // Also returns a minimal asset picker list for the "raise request" form.
-  // Lost, retired and disposed assets are left out: they can't be maintained.
-  const [requests, total, assets] = await Promise.all([
+  const [requests, total] = await Promise.all([
     prisma.maintenanceRequest.findMany({
       where,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -50,14 +48,9 @@ export async function GET(req: NextRequest) {
       },
     }),
     prisma.maintenanceRequest.count({ where }),
-    prisma.asset.findMany({
-      where: { status: { notIn: ["LOST", "RETIRED", "DISPOSED"] } },
-      select: { id: true, assetTag: true, name: true, status: true },
-      orderBy: { assetTag: "asc" },
-    }),
   ]);
 
-  return paginated(requests, total, paging.page, { assets });
+  return paginated(requests, total, paging.page);
 }
 
 export async function POST(req: NextRequest) {

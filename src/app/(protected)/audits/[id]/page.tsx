@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { SearchSelect } from "@/components/search-select";
 import { cn } from "@/utils/utils";
 import { ArrowLeft, CheckCircle2, HelpCircle, AlertTriangle, XCircle, Lock, UserPlus, X } from "lucide-react";
 
@@ -72,8 +73,7 @@ export default function AuditCycleDetailPage() {
   const [auditors, setAuditors] = useState<Auditor[]>([]);
   const [permissions, setPermissions] = useState<Permissions>({ canRecord: false, canResolve: false, canManageAuditors: false });
   const [report, setReport] = useState<Discrepancy[]>([]);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [addingId, setAddingId] = useState("");
+  const [adding, setAdding] = useState<Candidate | null>(null);
   const [resolvingId, setResolvingId] = useState<number | null>(null);
 
   function refetch() {
@@ -94,27 +94,17 @@ export default function AuditCycleDetailPage() {
 
   useEffect(refetch, [params.id]);
 
-  // People an Admin can still add: active Admins, Asset Managers and Department Heads.
-  useEffect(() => {
-    if (!permissions.canManageAuditors) return;
-    Promise.all(
-      ["ADMIN", "ASSET_MANAGER", "DEPARTMENT_HEAD"].map((role) =>
-        fetch(`/api/employees?role=${role}&status=ACTIVE&pageSize=100`).then((r) => r.json())
-      )
-    ).then((lists) => setCandidates(lists.flatMap((l) => l.data ?? [])));
-  }, [permissions.canManageAuditors]);
-
   async function addAuditor() {
-    if (!addingId) return;
+    if (!adding) return;
     setError(null);
     const res = await fetch(`/api/audit-cycles/${params.id}/auditors`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ auditorIds: [Number(addingId)] }),
+      body: JSON.stringify({ auditorIds: [adding.id] }),
     });
     const data = await res.json();
     if (!res.ok) return setError(data.message ?? "Couldn't add the auditor");
-    setAddingId("");
+    setAdding(null);
     refetch();
   }
 
@@ -286,21 +276,17 @@ export default function AuditCycleDetailPage() {
         </div>
         {permissions.canManageAuditors && (
           <div className="flex gap-2">
-            <select
-              value={addingId}
-              onChange={(e) => setAddingId(e.target.value)}
-              className="h-9 flex-1 rounded-lg border border-border bg-background px-3 text-sm text-foreground"
-            >
-              <option value="">Add an auditor…</option>
-              {candidates
-                .filter((c) => !auditors.some((a) => a.id === c.id))
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.firstName} {c.lastName}
-                  </option>
-                ))}
-            </select>
-            <Button className="cursor-pointer" variant="outline" onClick={addAuditor} disabled={!addingId}>
+            <SearchSelect<Candidate>
+              endpoint="/api/employees"
+              params={{ role: "ADMIN,ASSET_MANAGER,DEPARTMENT_HEAD", status: "ACTIVE" }}
+              filter={(c) => !auditors.some((a) => a.id === c.id)}
+              value={adding}
+              onChange={setAdding}
+              label={(c) => `${c.firstName} ${c.lastName}`}
+              placeholder="Search for an auditor to add…"
+              className="flex-1"
+            />
+            <Button className="cursor-pointer" variant="outline" onClick={addAuditor} disabled={!adding}>
               <UserPlus data-icon="inline-start" /> Add
             </Button>
           </div>

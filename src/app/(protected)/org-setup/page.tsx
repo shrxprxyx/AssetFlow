@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState } from "@/components/ui";
 import { Pager } from "@/components/pager";
+import { SearchSelect } from "@/components/search-select";
 import { cn } from "@/utils/utils";
 
 // ── Types ──────────────────────────────────────────────
@@ -114,7 +115,8 @@ export default function OrganizationSetupPage() {
 
 function DepartmentsTab() {
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  // The chosen head, found by searching, so any employee can be picked.
+  const [head, setHead] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -130,12 +132,8 @@ function DepartmentsTab() {
   async function refetch() {
     setLoading(true);
     try {
-      const [deptRes, empRes] = await Promise.all([
-        fetch("/api/departments"),
-        fetch("/api/employees?pageSize=100"),
-      ]);
+      const deptRes = await fetch("/api/departments");
       setDepartments(await deptRes.json());
-      setEmployees((await empRes.json()).data ?? []);
     } catch {
       setError("Failed to load departments");
     } finally {
@@ -168,6 +166,7 @@ function DepartmentsTab() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create department");
       setForm({ name: "", description: "", headId: "", parentDeptId: "" });
+      setHead(null);
       setShowForm(false);
       refetch();
     } catch (e) {
@@ -239,18 +238,17 @@ function DepartmentsTab() {
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               className="h-10 px-3 rounded-lg bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-3 focus:ring-ring/50"
             />
-            <select
-              value={form.headId}
-              onChange={(e) => setForm({ ...form, headId: e.target.value })}
-              className="h-10 px-3 rounded-lg bg-background border border-border text-foreground focus:outline-none focus:ring-3 focus:ring-ring/50"
-            >
-              <option value="">Department Head (optional)</option>
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.firstName} {e.lastName}
-                </option>
-              ))}
-            </select>
+            <SearchSelect<Employee>
+              endpoint="/api/employees"
+              params={{ status: "ACTIVE" }}
+              value={head}
+              onChange={(e) => {
+                setHead(e);
+                setForm({ ...form, headId: e ? String(e.id) : "" });
+              }}
+              label={(e) => `${e.firstName} ${e.lastName}`}
+              placeholder="Department Head (optional): search by name or email"
+            />
             <select
               value={form.parentDeptId}
               onChange={(e) => setForm({ ...form, parentDeptId: e.target.value })}

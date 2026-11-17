@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/utils";
 import { Pager } from "@/components/pager";
+import { SearchSelect } from "@/components/search-select";
 import { Plus, ClipboardCheck, AlertTriangle } from "lucide-react";
 
 type Cycle = {
@@ -43,7 +44,8 @@ export default function AuditsPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [candidates, setCandidates] = useState<Auditor[]>([]);
+  // Auditors picked for the new cycle (found by searching, so anyone eligible can be added).
+  const [chosen, setChosen] = useState<Auditor[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -79,21 +81,15 @@ export default function AuditsPage() {
 
   useEffect(refetch, [page]);
 
-  // People who can be auditors: active Admins, Asset Managers and Department Heads.
-  useEffect(() => {
-    if (!isAdmin) return;
-    Promise.all(
-      ["ADMIN", "ASSET_MANAGER", "DEPARTMENT_HEAD"].map((role) =>
-        fetch(`/api/employees?role=${role}&status=ACTIVE&pageSize=100`).then((r) => r.json())
-      )
-    ).then((lists) => setCandidates(lists.flatMap((l) => l.data ?? [])));
-  }, [isAdmin]);
+  function addAuditor(person: Auditor | null) {
+    if (!person) return;
+    setChosen((list) => (list.some((p) => p.id === person.id) ? list : [...list, person]));
+    setForm((f) => ({ ...f, auditorIds: f.auditorIds.includes(person.id) ? f.auditorIds : [...f.auditorIds, person.id] }));
+  }
 
-  function toggleAuditor(id: number) {
-    setForm((f) => ({
-      ...f,
-      auditorIds: f.auditorIds.includes(id) ? f.auditorIds.filter((x) => x !== id) : [...f.auditorIds, id],
-    }));
+  function removeAuditor(id: number) {
+    setChosen((list) => list.filter((p) => p.id !== id));
+    setForm((f) => ({ ...f, auditorIds: f.auditorIds.filter((x) => x !== id) }));
   }
 
   async function submitCycle() {
@@ -120,6 +116,7 @@ export default function AuditsPage() {
       }
       setShowForm(false);
       setForm({ ...form, name: "", scopeId: "", scopeLocation: "", auditorIds: [] });
+      setChosen([]);
       refetch();
     } finally {
       setSubmitting(false);
@@ -219,23 +216,33 @@ export default function AuditsPage() {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">Auditors (pick one or more)</label>
-            <div className="max-h-40 overflow-y-auto rounded-lg border border-border bg-background p-2 grid grid-cols-1 sm:grid-cols-2 gap-1">
-              {candidates.length === 0 && <p className="text-xs text-muted-foreground p-1">Loading people…</p>}
-              {candidates.map((p) => (
-                <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted">
-                  <input
-                    type="checkbox"
-                    checked={form.auditorIds.includes(p.id)}
-                    onChange={() => toggleAuditor(p.id)}
-                  />
-                  <span className="text-foreground">
+            <label className="text-xs text-muted-foreground">Auditors (search and add one or more)</label>
+            <SearchSelect<Auditor>
+              endpoint="/api/employees"
+              params={{ role: "ADMIN,ASSET_MANAGER,DEPARTMENT_HEAD", status: "ACTIVE" }}
+              filter={(p) => !form.auditorIds.includes(p.id)}
+              value={null}
+              onChange={addAuditor}
+              label={(p) => `${p.firstName} ${p.lastName} (${p.role.replace("_", " ").toLowerCase()})`}
+              placeholder="Search by name or email…"
+            />
+            {chosen.length > 0 && (
+              <ul className="flex flex-wrap gap-2 pt-1">
+                {chosen.map((p) => (
+                  <li key={p.id} className="flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground">
                     {p.firstName} {p.lastName}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{p.role.replace("_", " ").toLowerCase()}</span>
-                </label>
-              ))}
-            </div>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${p.firstName} ${p.lastName}`}
+                      onClick={() => removeAuditor(p.id)}
+                      className="cursor-pointer text-muted-foreground hover:text-foreground"
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {error && (

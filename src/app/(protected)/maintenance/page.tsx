@@ -5,6 +5,8 @@ import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PhotoField } from "@/components/photo-field";
+import { Pager } from "@/components/pager";
+import { SearchSelect } from "@/components/search-select";
 import { cn } from "@/utils/utils";
 
 type MaintenanceRequest = {
@@ -21,6 +23,11 @@ type MaintenanceRequest = {
 };
 
 type AssetOption = { id: number; assetTag: string; name: string; status: string };
+
+// The most the API returns in one page. The board shows one page of requests at a time.
+const PAGE_SIZE = 100;
+// Lost, retired and disposed assets can't be maintained.
+const NOT_MAINTAINABLE = ["LOST", "RETIRED", "DISPOSED"];
 
 const PRIORITY_STYLES: Record<string, string> = {
   LOW: "bg-muted text-muted-foreground",
@@ -52,11 +59,14 @@ export default function MaintenancePage() {
   const isManager = session?.user?.role === "ASSET_MANAGER" || session?.user?.role === "ADMIN";
 
   const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
-  const [assets, setAssets] = useState<AssetOption[]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  // Chosen in the raise form (found by searching, so any asset can be picked).
+  const [asset, setAsset] = useState<AssetOption | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [form, setForm] = useState({ assetId: "", description: "", priority: "MEDIUM", photoUrl: "" });
+  const [form, setForm] = useState({ description: "", priority: "MEDIUM", photoUrl: "" });
   const [submitting, setSubmitting] = useState(false);
 
   // Per-card ephemeral inputs (technician id to assign, resolution notes to resolve)
@@ -67,10 +77,16 @@ export default function MaintenancePage() {
   async function refetch() {
     setLoading(true);
     try {
-      const res = await fetch("/api/maintenance-requests?pageSize=100");
+      const res = await fetch(`/api/maintenance-requests?page=${page}&pageSize=${PAGE_SIZE}`);
       const data = await res.json();
+      const count = data.total ?? 0;
+      // The page we were on no longer exists (the list shrank): go to the last one.
+      if ((data.data ?? []).length === 0 && count > 0 && page > 1) {
+        setPage(Math.ceil(count / PAGE_SIZE));
+        return;
+      }
       setRequests(data.data ?? []);
-      setAssets(data.assets ?? []);
+      setTotal(count);
     } finally {
       setLoading(false);
     }
@@ -78,7 +94,8 @@ export default function MaintenancePage() {
 
   useEffect(() => {
     refetch();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   async function raiseRequest() {
     setError("");
@@ -88,7 +105,7 @@ export default function MaintenancePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          assetId: Number(form.assetId),
+          assetId: asset!.id,
           description: form.description,
           priority: form.priority,
           photoUrl: form.photoUrl || undefined,
@@ -99,7 +116,8 @@ export default function MaintenancePage() {
         setError(data.message ?? "Couldn't raise the request");
         return;
       }
-      setForm({ assetId: "", description: "", priority: "MEDIUM", photoUrl: "" });
+      setAsset(null);
+      setForm({ description: "", priority: "MEDIUM", photoUrl: "" });
       refetch();
     } finally {
       setSubmitting(false);
@@ -142,18 +160,15 @@ export default function MaintenancePage() {
         <CardContent className="pt-6">
           <h2 className="text-sm font-semibold text-foreground mb-3">Raise a request</h2>
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-            <select
-              value={form.assetId}
-              onChange={(e) => setForm({ ...form, assetId: e.target.value })}
-              className="h-10 cursor-pointer rounded-lg border border-border bg-background px-3 text-sm text-foreground w-full sm:w-56"
-            >
-              <option value="">Select asset</option>
-              {assets.map((a) => (
-                <option key={a.id} value={a.id} className="cursor-pointer">
-                  {a.assetTag} — {a.name}
-                </option>
-              ))}
-            </select>
+            <SearchSelect<AssetOption>
+              endpoint="/api/assets"
+              value={asset}
+              onChange={setAsset}
+              filter={(a) => !NOT_MAINTAINABLE.includes(a.status)}
+              label={(a) => `${a.assetTag} — ${a.name}`}
+              placeholder="Search asset by tag, name or serial"
+              className="w-full sm:w-64"
+            />
             <input
               type="text"
               placeholder="Describe the issue…"
@@ -173,7 +188,7 @@ export default function MaintenancePage() {
             </select>
             <Button
               onClick={raiseRequest}
-              disabled={submitting || !form.assetId || !form.description}
+              disabled={submitting || !asset || !form.description}
               className="w-full sm:w-auto cursor-pointer"
             >
               {submitting ? "Raising…" : "Raise Request"}
@@ -335,6 +350,8 @@ export default function MaintenancePage() {
           })}
         </div>
       )}
+
+      <Pager page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} disabled={loading} noun="requests" />
     </div>
   );
 }
