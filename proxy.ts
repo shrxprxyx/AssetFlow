@@ -4,8 +4,9 @@ import { NextResponse } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/reset-password"];
 
-// Built from the edge-safe config only: importing "@/auth" here would pull the
-// database, bcrypt and Redis into middleware, which cannot run them.
+// Next.js 16 renamed middleware to proxy (this file used to be middleware.ts).
+// Built from the lightweight config only: importing "@/auth" here would pull the
+// database, bcrypt and Redis into every request this file runs on.
 const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {

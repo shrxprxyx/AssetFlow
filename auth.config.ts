@@ -1,9 +1,9 @@
 import type { NextAuthConfig } from "next-auth";
 
 /**
- * The part of the NextAuth setup that is safe to run in middleware.
+ * The part of the NextAuth setup that is safe to run in proxy.ts.
  *
- * Middleware runs in a restricted runtime, so it must not pull in the database,
+ * The proxy sits in front of every request, so it must not pull in the database,
  * bcrypt or Redis. It only needs to read the session cookie, which needs no
  * providers. `auth.ts` adds the Credentials provider (database + password
  * check + rate limiting) on top of this for the API routes.
