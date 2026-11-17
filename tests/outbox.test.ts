@@ -20,7 +20,7 @@ import {
   relayPending,
   MAX_PROCESS_ATTEMPTS,
 } from "@/services/outbox";
-import { logActivity } from "@/services/logActivity";
+import { logActivity } from "./helpers/logActivity";
 import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset } from "./helpers/db";
 

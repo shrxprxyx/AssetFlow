@@ -50,7 +50,7 @@ async function freshLogActivity(url: string) {
   await resetProducer();
   vi.resetModules();
   process.env.REDIS_URL = url;
-  return (await import("@/services/logActivity")).logActivity;
+  return (await import("./helpers/logActivity")).logActivity;
 }
 
 const startRealWorker = (schedule: Record<string, number> = {}) =>

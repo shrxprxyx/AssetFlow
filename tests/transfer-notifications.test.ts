@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTransferRequest, approveTransfer, rejectTransfer, cancelTransfer } from "@/services/transfers";
 import type { Actor } from "@/services/transfers";
-import { logActivity } from "@/services/logActivity";
+import { logActivity } from "./helpers/logActivity";
 import { prisma } from "@/services/prisma";
 import { resetDb, createUser, createAsset, createDepartment } from "./helpers/db";
 
