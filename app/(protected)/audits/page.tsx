@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Pager } from "@/components/pager";
 import { Plus, ClipboardCheck, AlertTriangle } from "lucide-react";
 
 type Cycle = {
@@ -32,11 +33,15 @@ function fmtDate(d: string) {
   return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+const PAGE_SIZE = 12;
+
 export default function AuditsPage() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN";
 
   const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [candidates, setCandidates] = useState<Auditor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,16 +61,23 @@ export default function AuditsPage() {
 
   function refetch() {
     setLoading(true);
-    fetch("/api/audit-cycles?pageSize=100")
+    fetch(`/api/audit-cycles?page=${page}&pageSize=${PAGE_SIZE}`)
       .then((r) => r.json())
       .then((d) => {
+        const count: number = d.total ?? 0;
+        // The page we were on no longer exists (the list shrank): go to the last one.
+        if ((d.data ?? []).length === 0 && count > 0 && page > 1) {
+          setPage(Math.ceil(count / PAGE_SIZE));
+          return;
+        }
         setCycles(d.data ?? []);
+        setTotal(count);
         setDepartments(d.departments ?? []);
       })
       .finally(() => setLoading(false));
   }
 
-  useEffect(refetch, []);
+  useEffect(refetch, [page]);
 
   // People who can be auditors: active Admins, Asset Managers and Department Heads.
   useEffect(() => {
@@ -298,6 +310,8 @@ export default function AuditsPage() {
           </Link>
         ))}
       </div>
+
+      <Pager page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} disabled={loading} noun="audit cycles" />
     </div>
   );
 }

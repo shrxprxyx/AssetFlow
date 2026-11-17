@@ -6,6 +6,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { Pager } from "@/components/pager";
+
+const PAGE_SIZE = 20;
 
 type Person = { id: number; name: string } | null;
 
@@ -51,6 +54,10 @@ export function TransferApprovals({
   const myId = Number(session?.user?.id);
 
   const [rows, setRows] = useState<TransferRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  // Waiting for a decision across ALL pages (the badge must not depend on the page shown).
+  const [pendingTotal, setPendingTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -64,16 +71,27 @@ export function TransferApprovals({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/transfers?status=ALL&pageSize=50");
+      const [res, pendingRes] = await Promise.all([
+        fetch(`/api/transfers?status=ALL&page=${page}&pageSize=${PAGE_SIZE}`),
+        fetch("/api/transfers?status=PENDING&pageSize=1"),
+      ]);
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || data.error || "Failed to load transfer requests");
+      const count: number = data.total ?? 0;
+      // The page we were on no longer exists (the list shrank): go to the last one.
+      if ((data.data ?? []).length === 0 && count > 0 && page > 1) {
+        setPage(Math.ceil(count / PAGE_SIZE));
+        return;
+      }
       setRows(data.data ?? []);
+      setTotal(count);
+      if (pendingRes.ok) setPendingTotal((await pendingRes.json()).total ?? 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load transfer requests");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page]);
 
   useEffect(() => {
     load();
@@ -149,7 +167,7 @@ export function TransferApprovals({
     }
   }
 
-  const pendingCount = rows.filter((r) => r.status === "PENDING").length;
+  const pendingCount = pendingTotal;
   const requestable = assets.filter((a) => a.currentHolder?.id !== myId);
 
   return (
@@ -283,6 +301,8 @@ export function TransferApprovals({
           </div>
         </Card>
       )}
+
+      <Pager page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} disabled={loading} noun="transfer requests" />
     </div>
   );
 }

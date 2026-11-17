@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { TransferApprovals } from "@/components/transfer-approvals";
+import { Pager } from "@/components/pager";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -65,11 +66,16 @@ function Pill({ className, children }: { className?: string; children: React.Rea
 
 // ── Page ───────────────────────────────────────────────
 
+const ALLOC_PAGE_SIZE = 15;
+
 export default function AllocationsPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [activeAllocations, setActiveAllocations] = useState<Allocation[]>([]);
+  const [allocPage, setAllocPage] = useState(1);
+  const [allocTotal, setAllocTotal] = useState(0);
+  const [allocLoading, setAllocLoading] = useState(false);
   const { data: session } = useSession();
   // Only these roles can hand assets out. (The API enforces this too; this just
   // stops showing a form that would be rejected.)
@@ -109,22 +115,19 @@ export default function AllocationsPage() {
     setLoading(true);
     setError("");
     try {
-      const [assetsRes, employeesRes, allocationsRes, departmentsRes] = await Promise.all([
+      const [assetsRes, employeesRes, departmentsRes] = await Promise.all([
         fetch("/api/assets?pageSize=100"),
         canAllocate ? fetch("/api/employees?pageSize=100") : Promise.resolve(null),
-        fetch("/api/allocations?status=ACTIVE&pageSize=100"),
         // Everyone needs the names, to show who holds a department-allocated asset.
         fetch("/api/departments"),
       ]);
       const assetsData = await assetsRes.json();
       const employeesData = employeesRes ? await employeesRes.json() : { data: [] };
-      const allocationsData = await allocationsRes.json();
       const departmentsData = departmentsRes.ok ? await departmentsRes.json() : [];
       if (!assetsRes.ok) throw new Error(assetsData.message || assetsData.error || "Failed to load assets");
       // Paginated lists answer { data, total, page, pageSize }.
       setAssets(assetsData.data ?? []);
       setEmployees(employeesData.data ?? []);
-      setActiveAllocations(allocationsData.data ?? []);
       setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
       setRefreshKey((k) => k + 1);
     } catch (e) {
@@ -138,6 +141,35 @@ export default function AllocationsPage() {
     refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canAllocate]);
+
+  // The Active Allocations table is paged on its own, so turning pages doesn't
+  // reload the asset and employee lists. refetch() bumps refreshKey, which reloads it.
+  useEffect(() => {
+    let cancelled = false;
+    setAllocLoading(true);
+    fetch(`/api/allocations?status=ACTIVE&page=${allocPage}&pageSize=${ALLOC_PAGE_SIZE}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        const count: number = d.total ?? 0;
+        // The page we were on no longer exists (the list shrank): go to the last one.
+        if ((d.data ?? []).length === 0 && count > 0 && allocPage > 1) {
+          setAllocPage(Math.ceil(count / ALLOC_PAGE_SIZE));
+          return;
+        }
+        setActiveAllocations(d.data ?? []);
+        setAllocTotal(count);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveAllocations([]);
+      })
+      .finally(() => {
+        if (!cancelled) setAllocLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [allocPage, refreshKey]);
 
   useEffect(() => {
     if (!assetId) {
@@ -536,6 +568,16 @@ export default function AllocationsPage() {
                 </div>
               </Card>
             )}
+            <div className="mt-3">
+              <Pager
+                page={allocPage}
+                pageSize={ALLOC_PAGE_SIZE}
+                total={allocTotal}
+                onPageChange={setAllocPage}
+                disabled={allocLoading}
+                noun="active allocations"
+              />
+            </div>
           </div>
 
           {/* Transfer requests + approvals */}
