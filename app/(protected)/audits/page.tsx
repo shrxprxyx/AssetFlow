@@ -12,6 +12,7 @@ type Cycle = {
   name: string;
   scopeType: "ALL" | "DEPARTMENT" | "LOCATION";
   scopeId: number | null;
+  scopeLocation: string | null;
   startDate: string;
   endDate: string;
   status: "ACTIVE" | "CLOSED";
@@ -20,7 +21,10 @@ type Cycle = {
   checkedCount: number;
   missingCount: number;
   damagedCount: number;
+  auditorCount: number;
 };
+
+type Auditor = { id: number; firstName: string; lastName: string; role: string };
 
 type Department = { id: number; name: string };
 
@@ -34,6 +38,7 @@ export default function AuditsPage() {
 
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [candidates, setCandidates] = useState<Auditor[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -41,8 +46,10 @@ export default function AuditsPage() {
 
   const [form, setForm] = useState({
     name: "",
-    scopeType: "ALL" as "ALL" | "DEPARTMENT",
+    scopeType: "ALL" as "ALL" | "DEPARTMENT" | "LOCATION",
     scopeId: "",
+    scopeLocation: "",
+    auditorIds: [] as number[],
     startDate: new Date().toISOString().slice(0, 10),
     endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
   });
@@ -60,6 +67,23 @@ export default function AuditsPage() {
 
   useEffect(refetch, []);
 
+  // People who can be auditors: active Admins, Asset Managers and Department Heads.
+  useEffect(() => {
+    if (!isAdmin) return;
+    Promise.all(
+      ["ADMIN", "ASSET_MANAGER", "DEPARTMENT_HEAD"].map((role) =>
+        fetch(`/api/employees?role=${role}&status=ACTIVE&pageSize=100`).then((r) => r.json())
+      )
+    ).then((lists) => setCandidates(lists.flatMap((l) => l.data ?? [])));
+  }, [isAdmin]);
+
+  function toggleAuditor(id: number) {
+    setForm((f) => ({
+      ...f,
+      auditorIds: f.auditorIds.includes(id) ? f.auditorIds.filter((x) => x !== id) : [...f.auditorIds, id],
+    }));
+  }
+
   async function submitCycle() {
     setError(null);
     setSubmitting(true);
@@ -71,6 +95,8 @@ export default function AuditsPage() {
           name: form.name,
           scopeType: form.scopeType,
           scopeId: form.scopeType === "DEPARTMENT" && form.scopeId ? Number(form.scopeId) : undefined,
+          scopeLocation: form.scopeType === "LOCATION" ? form.scopeLocation : undefined,
+          auditorIds: form.auditorIds,
           startDate: form.startDate,
           endDate: form.endDate,
         }),
@@ -81,7 +107,7 @@ export default function AuditsPage() {
         return;
       }
       setShowForm(false);
-      setForm({ ...form, name: "", scopeId: "" });
+      setForm({ ...form, name: "", scopeId: "", scopeLocation: "", auditorIds: [] });
       refetch();
     } finally {
       setSubmitting(false);
@@ -122,11 +148,12 @@ export default function AuditsPage() {
               <label className="text-xs text-muted-foreground">Scope</label>
               <select
                 value={form.scopeType}
-                onChange={(e) => setForm({ ...form, scopeType: e.target.value as "ALL" | "DEPARTMENT" })}
+                onChange={(e) => setForm({ ...form, scopeType: e.target.value as "ALL" | "DEPARTMENT" | "LOCATION" })}
                 className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground"
               >
                 <option value="ALL">All assets</option>
                 <option value="DEPARTMENT">A department</option>
+                <option value="LOCATION">A location</option>
               </select>
             </div>
             {form.scopeType === "DEPARTMENT" && (
@@ -144,6 +171,19 @@ export default function AuditsPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+            )}
+            {form.scopeType === "LOCATION" && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Location</label>
+                <input
+                  type="text"
+                  value={form.scopeLocation}
+                  onChange={(e) => setForm({ ...form, scopeLocation: e.target.value })}
+                  placeholder="e.g. Floor 2"
+                  className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+                />
+                <p className="text-xs text-muted-foreground">Covers every asset whose location contains this text.</p>
               </div>
             )}
             <div className="flex flex-col gap-1">
@@ -166,6 +206,26 @@ export default function AuditsPage() {
             </div>
           </div>
 
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Auditors (pick one or more)</label>
+            <div className="max-h-40 overflow-y-auto rounded-lg border border-border bg-background p-2 grid grid-cols-1 sm:grid-cols-2 gap-1">
+              {candidates.length === 0 && <p className="text-xs text-muted-foreground p-1">Loading people…</p>}
+              {candidates.map((p) => (
+                <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted">
+                  <input
+                    type="checkbox"
+                    checked={form.auditorIds.includes(p.id)}
+                    onChange={() => toggleAuditor(p.id)}
+                  />
+                  <span className="text-foreground">
+                    {p.firstName} {p.lastName}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{p.role.replace("_", " ").toLowerCase()}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
           {error && (
             <div className="rounded-lg border border-dashed border-destructive/60 bg-destructive/10 p-3 text-sm text-destructive">
               {error}
@@ -179,7 +239,13 @@ export default function AuditsPage() {
             <Button
               className="cursor-pointer"
               onClick={submitCycle}
-              disabled={submitting || !form.name || (form.scopeType === "DEPARTMENT" && !form.scopeId)}
+              disabled={
+                submitting ||
+                !form.name ||
+                form.auditorIds.length === 0 ||
+                (form.scopeType === "DEPARTMENT" && !form.scopeId) ||
+                (form.scopeType === "LOCATION" && !form.scopeLocation.trim())
+              }
             >
               {submitting ? "Creating…" : "Create Cycle"}
             </Button>
@@ -217,7 +283,8 @@ export default function AuditsPage() {
               </span>
             </div>
             <p className="text-xs text-muted-foreground mb-3">
-              {c.scopeType === "ALL" ? "All assets" : "Department scope"} · {fmtDate(c.startDate)} – {fmtDate(c.endDate)}
+              {c.scopeType === "ALL" ? "All assets" : c.scopeType === "LOCATION" ? `Location: ${c.scopeLocation}` : "Department scope"} ·{" "}
+              {fmtDate(c.startDate)} – {fmtDate(c.endDate)} · {c.auditorCount} auditor{c.auditorCount === 1 ? "" : "s"}
             </p>
             <p className="text-sm text-foreground mb-2">
               {c.checkedCount}/{c.assetCount} checked

@@ -183,6 +183,12 @@ export async function notifyForActivity(action: string, opts: ActivityOptions) {
       break;
     }
 
+    // An admin put the user on an audit cycle.
+    case "audit_assigned": {
+      add([changes.auditorId as number | undefined], `You were assigned as an auditor for "${String(changes.cycleName)}".`);
+      break;
+    }
+
     case "audit_finding_recorded": {
       if (changes.status && changes.status !== "VERIFIED") {
         add(await staffIds(opts.actorId), "An audit discrepancy was flagged.");

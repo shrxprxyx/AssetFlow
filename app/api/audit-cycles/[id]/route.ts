@@ -27,8 +27,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     );
   }
 
-  const [assets, findings, department] = await Promise.all([
-    getAssetsInScope(cycle.scopeType, cycle.scopeId),
+  const [assets, findings, department, assignments] = await Promise.all([
+    getAssetsInScope(cycle),
     prisma.auditFinding.findMany({
       where: { cycleId },
     }),
@@ -38,6 +38,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           select: { name: true },
         })
       : Promise.resolve(null),
+    prisma.auditAssignment.findMany({
+      where: { cycleId },
+      orderBy: { assignedAt: "asc" },
+      include: { auditor: { select: { id: true, firstName: true, lastName: true, role: true } } },
+    }),
   ]);
 
   const findingByAsset = new Map(findings.map((f) => [f.assetId, f]));
@@ -47,10 +52,24 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     finding: findingByAsset.get(asset.id) ?? null,
   }));
 
+  const auditors = assignments.map((a) => ({
+    id: a.auditor.id,
+    name: `${a.auditor.firstName} ${a.auditor.lastName}`,
+    role: a.auditor.role,
+  }));
+  const me = guard.user;
+
   return NextResponse.json({
     cycle: {
       ...cycle,
       departmentName: department?.name ?? null,
+    },
+    auditors,
+    // What this person may do here. The buttons follow these; the API enforces them.
+    permissions: {
+      canRecord: cycle.status === "ACTIVE" && auditors.some((a) => a.id === me.userId),
+      canResolve: cycle.status === "ACTIVE" && (me.role === "ADMIN" || me.role === "ASSET_MANAGER"),
+      canManageAuditors: cycle.status === "ACTIVE" && me.role === "ADMIN",
     },
     checklist,
   });

@@ -26,8 +26,11 @@ async function createCycle(adminId: number) {
   });
 }
 
+// A finding an Asset Manager has already approved: closing turns the asset Lost.
 const markMissing = (cycleId: number, assetId: number, auditorId: number) =>
-  prisma.auditFinding.create({ data: { cycleId, assetId, auditorId, status: "MISSING" } });
+  prisma.auditFinding.create({
+    data: { cycleId, assetId, auditorId, status: "MISSING", resolutionStatus: "APPROVED" },
+  });
 
 describe("closing an audit cycle", () => {
   let admin: Awaited<ReturnType<typeof createUser>>;
@@ -116,5 +119,44 @@ describe("closing an audit cycle", () => {
     const results = await Promise.all([close(cycle.id), close(cycle.id)]);
 
     expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+  });
+
+  it("is refused while a flagged asset still waits for a decision, and nothing changes", async () => {
+    const asset = await createAsset();
+    const cycle = await createCycle(admin.id);
+    await prisma.auditFinding.create({
+      data: { cycleId: cycle.id, assetId: asset.id, auditorId: admin.id, status: "MISSING" }, // PENDING
+    });
+
+    const res = await close(cycle.id);
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("unresolved_discrepancies");
+    expect(res.body.openCount).toBe(1);
+    expect((await prisma.auditCycle.findUniqueOrThrow({ where: { id: cycle.id } })).status).toBe("ACTIVE");
+    expect((await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })).status).toBe("AVAILABLE");
+  });
+
+  it("a rejected missing finding leaves the asset as it was", async () => {
+    const asset = await createAsset();
+    const cycle = await createCycle(admin.id);
+    await prisma.auditFinding.create({
+      data: { cycleId: cycle.id, assetId: asset.id, auditorId: admin.id, status: "MISSING", resolutionStatus: "REJECTED" },
+    });
+
+    const res = await close(cycle.id);
+
+    expect(res.status).toBe(200);
+    expect((await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })).status).toBe("AVAILABLE");
+  });
+
+  it("a verified finding never blocks closing", async () => {
+    const asset = await createAsset();
+    const cycle = await createCycle(admin.id);
+    await prisma.auditFinding.create({
+      data: { cycleId: cycle.id, assetId: asset.id, auditorId: admin.id, status: "VERIFIED" },
+    });
+
+    expect((await close(cycle.id)).status).toBe(200);
   });
 });

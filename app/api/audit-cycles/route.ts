@@ -1,25 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auditCycleSchema } from "@/lib/schemas";
+import { countAssetsInScope, validateAuditors } from "@/lib/audits";
+import { readJson, validationError } from "@/lib/http";
 import { logActivity } from "@/lib/logActivity";
 import { requireAuth, requireWriteAuth } from "@/lib/guards";
 import { parsePagination, paginated } from "@/lib/pagination";
-
-// Same scoping rule as getAssetsInScope() in lib/audits.ts, but returns a count
-// instead of loading every asset row for every cycle on the list page.
-async function countAssetsInScope(scopeType: string, scopeId: number | null) {
-  if (scopeType === "DEPARTMENT" && scopeId) {
-    const department = await prisma.department.findUnique({
-      where: { id: scopeId },
-      select: { name: true },
-    });
-    if (!department) return 0;
-    return prisma.asset.count({
-      where: { location: { contains: department.name, mode: "insensitive" } },
-    });
-  }
-  return prisma.asset.count();
-}
 
 // GET /api/audit-cycles?page=1&pageSize=25
 //   -> { data: [...cycles with counts], total, page, pageSize, departments: [...] }
@@ -53,8 +39,16 @@ export async function GET(req: NextRequest) {
       })
     : [];
 
+  const assigned = cycles.length
+    ? await prisma.auditAssignment.groupBy({
+        by: ["cycleId"],
+        where: { cycleId: { in: cycles.map((c) => c.id) } },
+        _count: { _all: true },
+      })
+    : [];
+
   const assetCounts = await Promise.all(
-    cycles.map((c) => countAssetsInScope(c.scopeType, c.scopeId))
+    cycles.map((c) => countAssetsInScope(c))
   );
 
   const result = cycles.map((c, i) => {
@@ -63,6 +57,7 @@ export async function GET(req: NextRequest) {
     return {
       ...c,
       assetCount: assetCounts[i],
+      auditorCount: assigned.find((a) => a.cycleId === c.id)?._count._all ?? 0,
       checkedCount: mine.reduce((sum, g) => sum + g._count._all, 0),
       missingCount: countOf("MISSING"),
       damagedCount: countOf("DAMAGED"),
@@ -77,25 +72,11 @@ export async function POST(req: NextRequest) {
   const guard = await requireWriteAuth("ADMIN");
   if (!guard.ok) return guard.response;
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json(
-      { error: "invalid_json", message: "Request body must be valid JSON" },
-      { status: 400 }
-    );
-  }
-
-  const parsed = auditCycleSchema.safeParse(body);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return NextResponse.json(
-      { error: "validation_error", message: issue.message, field: issue.path[0] },
-      { status: 400 }
-    );
-  }
-  const { name, scopeType, scopeId, startDate, endDate } = parsed.data;
+  const json = await readJson(req);
+  if (!json.ok) return json.response;
+  const parsed = auditCycleSchema.safeParse(json.body);
+  if (!parsed.success) return validationError(parsed.error);
+  const { name, scopeType, scopeId, scopeLocation, startDate, endDate, auditorIds } = parsed.data;
 
   if (endDate < startDate) {
     return NextResponse.json(
@@ -120,23 +101,57 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const cycle = await prisma.auditCycle.create({
-    data: {
-      name,
-      scopeType,
-      scopeId: scopeType === "DEPARTMENT" ? scopeId : null,
-      startDate,
-      endDate,
-      createdBy: guard.user.userId,
-    },
+  if (scopeType === "LOCATION" && !scopeLocation) {
+    return NextResponse.json(
+      { error: "validation_error", message: "Enter a location for a location-scoped audit", field: "scopeLocation" },
+      { status: 400 }
+    );
+  }
+
+  const auditors = await validateAuditors(auditorIds);
+  if (!auditors.ok) {
+    return NextResponse.json(
+      { error: "validation_error", message: auditors.message, field: "auditorIds" },
+      { status: 400 }
+    );
+  }
+
+  // The cycle and its auditors are created together or not at all.
+  const cycle = await prisma.$transaction(async (tx) => {
+    const created = await tx.auditCycle.create({
+      data: {
+        name,
+        scopeType,
+        scopeId: scopeType === "DEPARTMENT" ? scopeId : null,
+        scopeLocation: scopeType === "LOCATION" ? scopeLocation : null,
+        startDate,
+        endDate,
+        createdBy: guard.user.userId,
+      },
+    });
+    await tx.auditAssignment.createMany({
+      data: auditors.ids.map((auditorId) => ({ cycleId: created.id, auditorId })),
+    });
+    return created;
   });
 
   await logActivity("audit_cycle_created", {
     actorId: guard.user.userId,
     resourceType: "AuditCycle",
     resourceId: cycle.id,
-    changes: { name, scopeType, scopeId: cycle.scopeId },
+    changes: { name, scopeType, scopeId: cycle.scopeId, scopeLocation: cycle.scopeLocation, auditorIds: auditors.ids },
   });
+
+  // Tell each auditor they were picked (the admin doesn't need telling).
+  for (const auditorId of auditors.ids) {
+    if (auditorId === guard.user.userId) continue;
+    await logActivity("audit_assigned", {
+      actorId: guard.user.userId,
+      resourceType: "AuditCycle",
+      resourceId: cycle.id,
+      changes: { auditorId, cycleName: name },
+    });
+  }
 
   return NextResponse.json({ cycle }, { status: 201 });
 }

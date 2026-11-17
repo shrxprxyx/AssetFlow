@@ -329,6 +329,8 @@ model AuditCycle {
   name      String
   scopeType AuditScopeType
   scopeId   Int?
+  // For LOCATION scope: assets whose location contains this text.
+  scopeLocation String?
   startDate DateTime
   endDate   DateTime
   status    AuditCycleStatus @default(ACTIVE)
@@ -363,7 +365,11 @@ model AuditFinding {
   auditorNotes     String?
   conditionBefore  AssetCondition?
   conditionAfter   AssetCondition?
+  // PENDING until an Asset Manager / Admin decides: APPROVED or REJECTED.
   resolutionStatus String          @default("PENDING")
+  resolvedBy       Int?
+  resolvedAt       DateTime?
+  resolutionNotes  String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
@@ -371,6 +377,7 @@ model AuditFinding {
   asset   Asset      @relation(fields: [assetId], references: [id])
   auditor User       @relation(fields: [auditorId], references: [id])
 
+  @@unique([cycleId, assetId])
   @@index([cycleId])
   @@index([assetId])
   @@index([status])

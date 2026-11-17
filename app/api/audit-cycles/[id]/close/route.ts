@@ -6,6 +6,12 @@ import { logActivity } from "@/lib/logActivity";
 
 // Thrown inside the transaction when another request closed the cycle first.
 class AlreadyClosed extends Error {}
+// Thrown inside the transaction when flagged findings still wait for a decision.
+class UnresolvedDiscrepancies extends Error {
+  constructor(public count: number) {
+    super("unresolved discrepancies");
+  }
+}
 
 const alreadyClosed = () =>
   NextResponse.json(
@@ -61,8 +67,17 @@ export async function POST(
       });
       if (claimed.count === 0) throw new AlreadyClosed();
 
+      // Every Missing / Damaged finding needs an Asset Manager's decision first.
+      // Checked after claiming the cycle, so a decision can't slip in between the
+      // check and the close; throwing rolls the claim back.
+      const open = await tx.auditFinding.count({
+        where: { cycleId, status: { in: ["MISSING", "DAMAGED"] }, resolutionStatus: "PENDING" },
+      });
+      if (open > 0) throw new UnresolvedDiscrepancies(open);
+
       const missingFindings = await tx.auditFinding.findMany({
-        where: { cycleId, status: "MISSING" },
+        // Only confirmed (approved) missing assets become Lost.
+        where: { cycleId, status: "MISSING", resolutionStatus: "APPROVED" },
         select: { assetId: true },
         orderBy: { assetId: "asc" }, // fixed lock order
       });
@@ -120,7 +135,7 @@ export async function POST(
       }
 
       const damagedCount = await tx.auditFinding.count({
-        where: { cycleId, status: "DAMAGED" },
+        where: { cycleId, status: "DAMAGED", resolutionStatus: "APPROVED" },
       });
 
       const closed = await tx.auditCycle.findUniqueOrThrow({ where: { id: cycleId } });
@@ -136,6 +151,16 @@ export async function POST(
     });
   } catch (err) {
     if (err instanceof AlreadyClosed) return alreadyClosed();
+    if (err instanceof UnresolvedDiscrepancies) {
+      return NextResponse.json(
+        {
+          error: "unresolved_discrepancies",
+          message: `${err.count} flagged asset${err.count === 1 ? " still needs" : "s still need"} an approval or rejection before this cycle can be closed`,
+          openCount: err.count,
+        },
+        { status: 409 }
+      );
+    }
     throw err;
   }
 

@@ -137,6 +137,10 @@ export const auditCycleSchema = z.object({
   name: z.string().min(1, "Audit name required"),
   scopeType: z.enum(["DEPARTMENT", "LOCATION", "ALL"]),
   scopeId: z.number().optional(),
+  /** For LOCATION scope: assets whose location contains this text. */
+  scopeLocation: z.string().trim().optional(),
+  /** One or more people who will check assets. */
+  auditorIds: z.array(z.number().int().positive()).min(1, "Assign at least one auditor"),
   startDate: z.coerce.date(),
   endDate: z.coerce.date(),
 });
@@ -148,6 +152,15 @@ export const auditFindingSchema = z.object({
   auditorNotes: z.string().optional(),
 });
 export type AuditFindingInput = z.infer<typeof auditFindingSchema>;
+
+export const auditorsSchema = z.object({
+  auditorIds: z.array(z.number().int().positive()).min(1, "Pick at least one auditor"),
+});
+
+export const discrepancyResolutionSchema = z.object({
+  decision: z.enum(["APPROVED", "REJECTED"]),
+  notes: z.string().trim().max(500).optional(),
+});
 
 // =====================================================
 // Compatibility aliases for Asset Allocation module

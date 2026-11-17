@@ -50,6 +50,9 @@ const ACTION_LABELS: Record<string, { label: string; variant: string }> = {
   AUDIT_CYCLE_CREATED: { label: "Audit Started", variant: "warning" },
   AUDIT_CYCLE_CLOSED: { label: "Audit Closed", variant: "success" },
   AUDIT_FINDING_RECORDED: { label: "Audit Finding", variant: "warning" },
+  AUDIT_ASSIGNED: { label: "Auditor Assigned", variant: "warning" },
+  AUDIT_AUDITOR_REMOVED: { label: "Auditor Removed", variant: "warning" },
+  AUDIT_DISCREPANCY_RESOLVED: { label: "Audit Decision", variant: "success" },
   EMPLOYEE_PROMOTED: { label: "Employee Promoted", variant: "success" },
   DEPARTMENT_CREATED: { label: "Department Created", variant: "info" },
 };

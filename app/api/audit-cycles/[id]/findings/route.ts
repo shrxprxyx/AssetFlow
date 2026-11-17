@@ -3,14 +3,15 @@ import { prisma } from "@/lib/prisma";
 import { auditFindingSchema } from "@/lib/schemas";
 import { logActivity } from "@/lib/logActivity";
 import { requireWriteAuth } from "@/lib/guards";
+import { isAssetInScope, isAssignedAuditor } from "@/lib/audits";
 import { readJson, validationError } from "@/lib/http";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  // Only people who can run an audit may record findings. (With a single
-  // implicit auditor per cycle, "auditor" = Admin or Asset Manager.)
-  const guard = await requireWriteAuth("ADMIN", "ASSET_MANAGER");
+  // Anyone who may audit can reach this far; whether they audit THIS cycle is
+  // checked below against the cycle's assigned auditors.
+  const guard = await requireWriteAuth("ADMIN", "ASSET_MANAGER", "DEPARTMENT_HEAD");
   if (!guard.ok) return guard.response;
   const auditorId = guard.user.userId;
 
@@ -30,6 +31,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     );
   }
 
+  if (!(await isAssignedAuditor(cycleId, auditorId))) {
+    return NextResponse.json(
+      { error: "not_assigned", message: "You are not an assigned auditor on this audit cycle" },
+      { status: 403 }
+    );
+  }
+
   const json = await readJson(req);
   if (!json.ok) return json.response;
   const parsed = auditFindingSchema.safeParse(json.body);
@@ -44,19 +52,33 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     );
   }
 
-  // Upsert-by-hand: (cycleId, assetId) isn't a DB-enforced unique pair in this
-  // schema, and findings aren't a race-condition risk — one auditor clicking
-  // through a checklist sequentially — so a find-then-write is enough here.
-  const existing = await prisma.auditFinding.findFirst({ where: { cycleId, assetId } });
+  // Only assets this cycle covers can be checked off.
+  if (!(await isAssetInScope(cycle, assetId))) {
+    return NextResponse.json(
+      { error: "asset_out_of_scope", message: "This asset is not in the audit cycle's scope", field: "assetId" },
+      { status: 400 }
+    );
+  }
 
-  const finding = existing
-    ? await prisma.auditFinding.update({
-        where: { id: existing.id },
-        data: { status, auditorNotes, auditorId, conditionBefore: asset.condition },
-      })
-    : await prisma.auditFinding.create({
-        data: { cycleId, assetId, auditorId, status, auditorNotes, conditionBefore: asset.condition },
-      });
+  // One finding per asset per cycle (a unique index enforces it), so a second
+  // click updates the first. If the verdict itself changes, an earlier
+  // approval or rejection no longer applies and the finding goes back to pending.
+  const existing = await prisma.auditFinding.findUnique({ where: { cycleId_assetId: { cycleId, assetId } } });
+  const verdictChanged = !!existing && existing.status !== status;
+
+  const finding = await prisma.auditFinding.upsert({
+    where: { cycleId_assetId: { cycleId, assetId } },
+    create: { cycleId, assetId, auditorId, status, auditorNotes, conditionBefore: asset.condition },
+    update: {
+      status,
+      auditorNotes,
+      auditorId,
+      conditionBefore: asset.condition,
+      ...(verdictChanged
+        ? { resolutionStatus: "PENDING", resolvedBy: null, resolvedAt: null, resolutionNotes: null }
+        : {}),
+    },
+  });
 
   await logActivity("audit_finding_recorded", {
     actorId: auditorId,
