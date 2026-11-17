@@ -134,3 +134,29 @@ Next steps (not done)
 Tooling added 2026-11-18 (nothing has been run with it yet, so it changes no result above): `mixed-load.js` now ramps up (`RAMP_S`, default 10 s), and `profile-summary.mjs` totals a CPU profile by area and by function. Steps 1 and 2 above are now one command each; see "Find where the CPU goes" in `README.md`.
 
 Side note: the web log prints "Redis unavailable, counting in memory for 10s" once each time the server starts. It comes from the rate limiter's Redis client being used before its connection is ready, falls back to memory for 10 s, and is harmless. It is not fixed yet.
+
+## Runs 13-15: 2026-11-18, realistic profile (80 read + 20 write VUs, 1 minute)
+
+| Run | Req/s | avg | median | p95 | read p95 | write p95 | Failed requests | Checks | Thresholds |
+|---|---|---|---|---|---|---|---|---|---|
+| 13 (about 00:26) | 38.4 | 2.01 s | 2.30 s | 3.25 s | 2.92 s | 3.97 s | 0 % | 100 % (2,367) | read and write **missed** |
+| 14 (about 00:34) | 135.5 | 354 ms | 221 ms | 582 ms | 598 ms | 522 ms | 17.4 % | 85.4 % | read, checks and failures **missed** |
+| 15 (about 00:43) | 175.5 | 229 ms | 227 ms | 369 ms | 328 ms | 448 ms | 0 % | 100 % (10,501) | **all passed** |
+
+Run 15 detail: 382 allocate-and-return cycles, 319 bookings created and 63 booking collisions (all answered 409), exactly 1 allocation of the shared hot asset. Slowest endpoints were `allocation_return` (p95 498 ms) and `allocation_create` (p95 481 ms); every other endpoint had a p95 under 430 ms.
+
+What it shows
+
+- **The slowdown from runs 5-12 did not reproduce in run 15.** Throughput is about 4.5 times run 13 and the tail is about 9 times shorter, on the same code and the same load script.
+- **Run 13 matches runs 5-12:** every endpoint, reads included, had a median of about 2.3 s (minimum about 10 ms) at about 38 requests per second. That is the signature of one saturated process queueing everything.
+- **Run 14 is not a valid performance run.** Most writes failed (`booking`, `asset created` and `hot asset` failed 92-95 % of the time) while `RATE_LIMIT_DISABLED=true` was most likely not set for that server start, so the 120-writes-per-minute-per-user limit rejected them. The status codes were not recorded, so this is an inference, not a confirmed 429. Reads were fast (median 221 ms) because the expensive writes were being turned away early. This suggests the write path is what saturates the process, but run 15 shows it is fast when nothing else is wrong.
+- **Cause of the slow runs: NOT found.** The profile taken for run 13 covered only launcher processes (0.9 s, 0.6 s and 8.7 s of mostly idle time), not the server, so it says nothing about the slowness. The code did not change between runs 13 and 15, so it is likely to be how the server was started (profiler flags, which terminal, environment) or the machine's state, but that is not confirmed.
+- **Not run:** `integrity-check.sql` after any of these runs, and the load with the worker running.
+
+Tooling added 2026-11-18: `mixed-load.js` now prints each unexpected response status once per virtual user and endpoint (for example `unexpected status 429 on booking_create (rate limiting is ON: ...)`), so a failing run says why.
+
+Next steps (not done)
+
+1. Run the realistic profile once more to confirm run 15 is stable, with `RATE_LIMIT_DISABLED=true` set in the same terminal as the server.
+2. Run `integrity-check.sql` against the data these runs created.
+3. If a slow run happens again, capture the server profile with `node --cpu-prof --cpu-prof-dir=prof node_modules/next/dist/bin/next start`, stop it with a single Ctrl+C, wait for it to exit, and read it with `node load-test/profile-summary.mjs prof --top 30`.
