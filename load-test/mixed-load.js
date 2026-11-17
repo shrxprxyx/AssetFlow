@@ -18,6 +18,8 @@
 //   READ_VUS   80
 //   WRITE_VUS  20
 //   THINK_MS   300     pause between requests, to look like people rather than a flood
+//   RAMP_S     10      each user waits a random time up to this long before its first request, so
+//                      100 users do not all hit the server in the same second (0 = no ramp-up)
 //   MANAGER_EMAIL / EMPLOYEE_EMAIL / PASSWORD   default to the seeded demo accounts
 import http from "k6/http";
 import { check, sleep } from "k6";
@@ -29,6 +31,12 @@ const DURATION = __ENV.DURATION || "60s";
 const READ_VUS = Number(__ENV.READ_VUS || 80);
 const WRITE_VUS = Number(__ENV.WRITE_VUS || 20);
 const THINK_S = Number(__ENV.THINK_MS || 300) / 1000;
+const RAMP_S = Number(__ENV.RAMP_S === undefined ? 10 : __ENV.RAMP_S);
+
+// The first request of every user waits a random moment, so the run does not open with a herd.
+function stagger() {
+  if (__ITER === 0 && RAMP_S > 0) sleep(Math.random() * RAMP_S);
+}
 const PASSWORD = __ENV.PASSWORD || "password123";
 const MANAGER_EMAIL = __ENV.MANAGER_EMAIL || "manager@assetflow.com";
 const EMPLOYEE_EMAIL = __ENV.EMPLOYEE_EMAIL || "priya.shah@assetflow.com";
@@ -139,6 +147,7 @@ export function setup() {
 /* ───────────────────────────── read flow ──────────────────────────── */
 
 export function readFlow(data) {
+  stagger();
   // Half the readers are the employee, half the manager: different roles, different queries.
   const cookie = Math.random() < 0.5 ? data.employee : data.manager;
   const today = new Date().toISOString().slice(0, 10);
@@ -162,6 +171,7 @@ export function readFlow(data) {
 /* ───────────────────────────── write flow ─────────────────────────── */
 
 export function writeFlow(data) {
+  stagger();
   const cookie = data.manager;
 
   // 1. Book a random one-hour slot. Collisions are expected and must come back as 409.

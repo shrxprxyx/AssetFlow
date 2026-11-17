@@ -40,7 +40,7 @@ k6 run load-test/mixed-load.js
 Get-Content load-test/integrity-check.sql | docker compose exec -T postgres psql -U assetflow -d assetflow_load
 ```
 
-`DURATION`, `READ_VUS`, `WRITE_VUS` and `THINK_MS` can be changed with `-e`, for example `k6 run -e DURATION=120s load-test/mixed-load.js`.
+`DURATION`, `READ_VUS`, `WRITE_VUS`, `THINK_MS` and `RAMP_S` can be changed with `-e`, for example `k6 run -e DURATION=120s load-test/mixed-load.js`. `RAMP_S` (default 10) spreads each user's first request over that many seconds, so the run does not open with 100 requests in one second; `-e RAMP_S=0` switches it off. Runs made before it existed (everything in `RESULTS.md` up to now) had no ramp-up, so compare like with like.
 
 The run fails (non-zero exit) if any threshold is missed:
 
@@ -50,6 +50,23 @@ The run fails (non-zero exit) if any threshold is missed:
 | Write p95 | under 1000 ms |
 | Errors (409 conflicts excluded) | under 1 % |
 | Winners for the shared hot asset | at most 1 |
+
+## Find where the CPU goes
+
+If latency is bad, first find out whether requests are slow or the server is out of CPU, then which code uses it.
+
+```powershell
+# 1. Stop the server from step 3 above. Start it again under the profiler (same environment variables):
+node --cpu-prof --cpu-prof-dir=prof --cpu-prof-interval=2000 node_modules\next\dist\bin\next start
+
+# 2. Run the load once (with the worker running as well):
+k6 run load-test/mixed-load.js
+
+# 3. Stop the server with Ctrl+C (the profile is written on exit), then total it:
+node load-test/profile-summary.mjs prof --top 30
+```
+
+The summary shows how the busy time splits (your code, Next.js, other packages, Node itself, garbage collection) and the functions with the most self time. Paste it into the notes next to the run. Profiling slows the server a little, so judge the proportions, not the absolute latencies. Delete the `prof` folder afterwards; it is not for git.
 
 ## Where results go
 

@@ -86,3 +86,51 @@ What it shows
 - **Remaining tail.** In run 4 several read endpoints have a p95 of 350 ms against a p90 of about 58 ms, and many endpoints share a max of about 465 ms. That looks like occasional short stalls that hit whatever is in flight (garbage collection, the worker, the laptop). Not investigated, and not a threshold problem.
 - **Booking writes** have the widest spread (p90 488 ms): the few bookable rooms are locked one at a time, so concurrent bookings of the same room wait for each other. That is the intended behaviour.
 - Only one machine was used and CPU was not recorded. These numbers do not describe a deployed server.
+
+## Runs 5-12: 2026-11-17, after the outbox change, realistic profile MISSED most runs, cause NOT found
+
+Same machine and build as before (one laptop, `npm start`, single process, Postgres direct on 5433, rate limits off), database `assetflow_load` (about 1,000 assets and 3,000 events by the end). The worker was **not running** during these runs, so events stayed unprocessed in the outbox; that is not the cause of the slowdown (an idle worker costs nothing). Thresholds were not loosened.
+
+| Run (clock, IST) | Profile | Read p95 | Write p95 | Req/s | Result |
+|---|---|---|---|---|---|
+| Run 4 (before, for reference) | realistic | 96 ms | 309 ms | 48.0 | passed |
+| earlier (first failing run) | realistic | 1.52 s | 2.09 s | 39 | missed |
+| 18:32 | realistic | 1.55 s | 1.93 s | 38.3 | missed |
+| 18:38 | baseline (10 VUs) | 219 ms | 236 ms | 27.1 | passed (run 3 was 56 / 86 ms) |
+| 18:41 | baseline, after `VACUUM (ANALYZE)` | 145 ms | 186 ms | 29.7 | passed |
+| 18:42 | realistic | 153 ms | 288 ms | 47.9 | **passed** |
+| 18:49 | realistic | 1.01 s | 1.32 s | 43.7 | missed |
+| 18:51 (right after a server restart) | realistic | 1.23 s | 1.59 s | 41.6 | missed |
+| 18:53 (second run straight after) | realistic | 2.62 s | 3.08 s | 36.1 | missed |
+| 18:58 | realistic | 1.36 s | 1.66 s | 42.6 | missed |
+| 19:02 (CPU and GC traced) | realistic | 812 ms | 459 ms | not recorded (3,167 requests) | read missed, write passed |
+
+All runs: 0 % failed requests and 100 % checks passed. `integrity-check.sql` was not run after these runs.
+
+What it shows
+
+- **It is a tail problem, not slow requests.** Between stalls the same load runs at a median of about 30 ms and a p95 of 70-125 ms. The p95 fails because of freezes of 2-25 s in which every endpoint, reads and writes alike, waits 1-3 s and then completes together. The same load and code passed once (18:42) and failed most other times.
+- **Ruled out, with evidence:**
+  - *Postgres disk or checkpoints:* checkpoint times did not overlap the freezes and every `sync=` was 0.11 s or less.
+  - *Postgres locks or load:* sampling `pg_stat_activity` during a run showed about 22 connections almost all idle (`ClientRead`), nothing active, and only brief lock waits (4 sessions for about a second).
+  - *PgBouncer:* not in the path of these runs (the load-test setup connects directly).
+  - *Redis:* healthy; its log shows only routine snapshots.
+  - *Garbage collection:* the longest pause during load was about 20 ms; the heap rises and falls normally (no leak).
+  - *Stale statistics or bloat:* at most 232 dead rows in any table, and the vacuum did not explain the difference.
+  - *Warm-up:* a second back-to-back run was worse, not better.
+  - *Login cost:* the script logs in twice, in `setup()`, not once per user.
+  - *The worker:* it was not running.
+- **The web process is almost out of CPU.** In the traced run the server process used 56 CPU-seconds in a 60-second run, about 94 % of one core, which is roughly 17-18 ms of CPU per request and a ceiling near 55 requests per second. During a 2-second freeze it used 1.2-1.7 cores, so it was busy, not waiting.
+- **Possible regression, not proven.** Run 2 sustained about 125 requests per second. If that was the same single process, it spent at most about 8 ms of CPU per request, so the cost per request may have more than doubled since then. Nothing here shows which change did that, and nothing here clears or blames the outbox work.
+- **Start-up herd.** The script has no ramp-up: all 100 users send a request in the first second, and that second's median was 844 ms. That is about 3 % of all requests and eats most of the 5 % tail that a p95 allows.
+- **Not found:** which code spends the CPU, and what causes the long freezes. Each freeze looks like a convoy: requests pile up, are released together, and arrive in lockstep again.
+
+Next steps (not done)
+
+1. Capture a CPU profile of the server during one realistic run: stop the server, run `node --cpu-prof --cpu-prof-dir=prof --cpu-prof-interval=2000 node_modules\next\dist\bin\next start`, run the load once, stop the server with Ctrl+C, and total the time by function.
+2. Add a short ramp-up to `mixed-load.js` so the first second is not a 100-request herd (this does not change any threshold).
+3. Re-run with the worker running, since the real system will have it.
+
+Tooling added 2026-11-18 (nothing has been run with it yet, so it changes no result above): `mixed-load.js` now ramps up (`RAMP_S`, default 10 s), and `profile-summary.mjs` totals a CPU profile by area and by function. Steps 1 and 2 above are now one command each; see "Find where the CPU goes" in `README.md`.
+
+Side note: the web log prints "Redis unavailable, counting in memory for 10s" once each time the server starts. It comes from the rate limiter's Redis client being used before its connection is ready, falls back to memory for 10 s, and is harmless. It is not fixed yet.
