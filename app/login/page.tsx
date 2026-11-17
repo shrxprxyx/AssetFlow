@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { AuthShell } from "@/components/auth-shell";
 import { LoginForm } from "@/components/auth-forms";
 import type { LoginInput } from "@/lib/schemas";
+import { safeNextPath } from "@/lib/qr";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -29,7 +30,9 @@ export default function LoginPage() {
         throw new Error("Invalid email or password");
       }
 
-      router.push("/dashboard");
+      // Back to the page that sent us here (e.g. a scanned QR label), if it was inside this app.
+      const next = new URLSearchParams(window.location.search).get("callbackUrl");
+      router.push(safeNextPath(next));
       router.refresh();
     } finally {
       setIsLoading(false);

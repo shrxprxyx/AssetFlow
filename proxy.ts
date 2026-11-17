@@ -30,7 +30,11 @@ export default auth((req) => {
 
   const isPublic = PUBLIC_PATHS.includes(pathname);
   if (!isLoggedIn && !isPublic) {
-    return NextResponse.redirect(new URL("/login", req.url));
+    // Remember where they were going, so signing in can take them back
+    // (a scanned QR label opens /assets?tag=...).
+    const login = new URL("/login", req.url);
+    if (pathname !== "/") login.searchParams.set("callbackUrl", pathname + req.nextUrl.search);
+    return NextResponse.redirect(login);
   }
 });
 

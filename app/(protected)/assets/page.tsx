@@ -10,7 +10,7 @@ import {
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown } from "lucide-react";
+import { ArrowUpDown, QrCode, ScanLine } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,9 @@ import {
 import { LoadingState, EmptyState } from "@/components/ui";
 import { Pager } from "@/components/pager";
 import { PhotoField } from "@/components/photo-field";
+import { AssetQrDialog } from "@/components/asset-qr-dialog";
+import { QrScanner } from "@/components/qr-scanner";
+import { tagFromScan } from "@/lib/qr";
 import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────
@@ -341,6 +344,10 @@ export default function AssetsPage() {
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
 
+  // QR labels: print one for an asset, or scan one to jump to it.
+  const [qrAsset, setQrAsset] = useState<Asset | null>(null);
+  const [scanning, setScanning] = useState(false);
+
   // Paging
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -412,6 +419,24 @@ export default function AssetsPage() {
     refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryId, departmentFilter, status, query, page]);
+
+  // A QR label opens /assets?tag=AF-0001: search for that tag straight away.
+  useEffect(() => {
+    const tag = new URLSearchParams(window.location.search).get("tag")?.trim();
+    if (tag) setSearch(tag);
+  }, []);
+
+  function onScanned(text: string) {
+    setScanning(false);
+    const tag = tagFromScan(text);
+    if (!tag) {
+      setNotice("");
+      setError("That QR code isn't an AssetFlow asset label.");
+      return;
+    }
+    setError("");
+    setSearch(tag);
+  }
 
   // Send the search a moment after typing stops, and start again from page 1.
   useEffect(() => {
@@ -539,10 +564,32 @@ export default function AssetsPage() {
       },
     ];
 
-    if (!canManage) return base;
+    // Anyone can open an asset's label; only managers get the edit and lifecycle actions.
+    const withQr: ColumnDef<Asset>[] = [
+      ...base,
+      {
+        id: "qr",
+        header: "QR",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <Button
+            size="xs"
+            variant="outline"
+            className="cursor-pointer"
+            title="Show this asset's QR label"
+            onClick={() => setQrAsset(row.original)}
+          >
+            <QrCode className="h-3.5 w-3.5" />
+            QR
+          </Button>
+        ),
+      },
+    ];
+
+    if (!canManage) return withQr;
 
     return [
-      ...base,
+      ...withQr,
       {
         id: "actions",
         header: "Actions",
@@ -716,6 +763,16 @@ export default function AssetsPage() {
               onChange={(e) => setSearch(e.target.value)}
               className={cn(inputClass, "flex-1")}
             />
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              title="Scan an asset's QR label"
+              onClick={() => setScanning(true)}
+            >
+              <ScanLine className="h-4 w-4" />
+              Scan
+            </Button>
             <select
               value={categoryId}
               onChange={(e) => {
@@ -907,6 +964,9 @@ export default function AssetsPage() {
 
       {/* Column sorting applies to the page on screen. */}
       <Pager page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} disabled={loading} noun="assets" />
+
+      {qrAsset && <AssetQrDialog asset={qrAsset} onClose={() => setQrAsset(null)} />}
+      {scanning && <QrScanner onResult={onScanned} onClose={() => setScanning(false)} />}
     </div>
   );
 }
