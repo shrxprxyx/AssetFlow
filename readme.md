@@ -26,7 +26,7 @@ Originally built for the Odoo Hackathon, then re-engineered for correctness unde
 
 ## Architecture
 
-​```mermaid
+```mermaid
 flowchart TB
 
 subgraph USERS["Users"]
@@ -38,18 +38,18 @@ end
 
 subgraph WEB["Next.js 16 (web process)"]
   PAGES["Pages / client components"]
-  API["API route handlers\n(Zod-validated, role-guarded)"]
+  API["API route handlers<br/>(Zod-validated, role-guarded)"]
 end
 
 subgraph WORKER["Worker process (npm run worker)"]
-  EVT["Event worker\n(notifications, retries)"]
-  SWEEP["Scheduled jobs\noverdue sweep · booking tick"]
+  EVT["Event worker<br/>(notifications, retries)"]
+  SWEEP["Scheduled jobs<br/>overdue sweep · booking tick"]
 end
 
 subgraph INFRA["Docker"]
   PGB["PgBouncer :6432"]
   PG[("PostgreSQL 16 :5433")]
-  REDIS[("Redis :6379\nBullMQ queues")]
+  REDIS[("Redis :6379<br/>BullMQ queues")]
 end
 
 USERS --> PAGES
@@ -60,7 +60,7 @@ REDIS --> EVT
 REDIS --> SWEEP
 EVT --> PGB
 SWEEP --> PGB
-​```
+```
 
 The browser refreshes notifications on a timer; there is no live push yet (see Roadmap).
 
@@ -72,47 +72,47 @@ These are the core engineering decisions in this version. Each one is backed by 
 
 ### One active allocation per asset
 
-​```mermaid
+```mermaid
 flowchart LR
 
-Request["Allocation request"] --> Tx["Transaction:\nlock the asset row (FOR UPDATE)"]
+Request["Allocation request"] --> Tx["Transaction:<br/>lock the asset row (FOR UPDATE)"]
 Tx --> Check["Is there already an ACTIVE allocation?"]
 Check -->|"no"| Create["Create allocation, set asset ALLOCATED"]
-Check -->|"yes"| Conflict["409 asset_already_allocated\n+ currentlyHeldBy"]
+Check -->|"yes"| Conflict["409 asset_already_allocated<br/>+ currentlyHeldBy"]
 Create -.->|"if anything bypasses the lock"| Index["Partial unique index rejects (P2002)"]
 Index -.-> Conflict
-​```
+```
 
 The row lock makes concurrent requests for one asset run one after another, so the check always sees committed state. The partial unique index is the actual guarantee: if anything ever slips past the application, the database rejects the second row and the API reports the same `409`.
 
-​```sql
+```sql
 CREATE UNIQUE INDEX "allocation_one_active_per_asset"
 ON "Allocation" ("assetId")
 WHERE "status" = 'ACTIVE';
-​```
+```
 
 Overdue allocations deliberately stay `ACTIVE`: that is the status the index protects, so an asset can't be handed to someone else while it is still out.
 
 ### Overlap-free resource booking
 
-​```mermaid
+```mermaid
 flowchart LR
 
-Booker --> Req["Booking request\n(resource, start, end)"]
-Req --> Lock["Transaction:\nlock the resource's Asset row"]
+Booker --> Req["Booking request<br/>(resource, start, end)"]
+Req --> Lock["Transaction:<br/>lock the resource's Asset row"]
 Lock --> Check["Overlap query"]
 Check -->|"overlap"| Reject["409 booking_overlap"]
 Check -->|"free"| Insert["Create booking; COMMIT"]
 Insert -.->|"backstop"| Excl["Exclusion constraint on (resourceId, time range)"]
-​```
+```
 
 The lock is taken on the **resource's own row** rather than on its existing bookings, so it also works for a resource's very first booking. Adjacent slots (10:00 right after a 9:00–10:00 booking) are allowed; overlapping ones are rejected by the database even if two requests race.
 
-​```sql
+```sql
 ALTER TABLE "ResourceBooking" ADD CONSTRAINT "booking_no_overlap"
 EXCLUDE USING gist ("resourceId" WITH =, tsrange("startTime", "endTime", '[)') WITH &&)
 WHERE ("status" <> 'CANCELLED');
-​```
+```
 
 ### Workflows that can be triggered twice
 
@@ -122,15 +122,15 @@ Maintenance approvals, transfer decisions, booking cancellations and asset statu
 
 ## Background Jobs
 
-​```mermaid
+```mermaid
 flowchart LR
 
-Action["Any action\n(allocate, book, approve, ...)"] --> Log["logActivity()\nwrites the audit entry"]
+Action["Any action<br/>(allocate, book, approve, ...)"] --> Log["logActivity()<br/>writes the audit entry"]
 Log --> Queue["BullMQ queue 'events'"]
 Log -.->|"Redis down"| Inline["handled inline instead"]
-Queue --> Worker["Worker: who needs to know?\nwrites notifications"]
+Queue --> Worker["Worker: who needs to know?<br/>writes notifications"]
 Worker -.->|"fails"| Retry["retry: 2s, 4s, 8s, 16s"]
-​```
+```
 
 - **The audit trail is written immediately** and never depends on Redis.
 - **Deciding who to notify** is handed to the worker, so a request doesn't wait for it. Failed jobs are retried with exponential backoff and kept for inspection.
@@ -143,7 +143,7 @@ Worker -.->|"fails"| Retry["retry: 2s, 4s, 8s, 16s"]
 
 ## Authentication Flow
 
-​```mermaid
+```mermaid
 sequenceDiagram
 
 actor User
@@ -159,7 +159,7 @@ NextAuth->>NextAuth: active? then bcrypt.compare(password, hash)
 NextAuth->>NextAuth: Issue JWT session (role, departmentId)
 NextAuth-->>Frontend: Session established
 Frontend-->>User: Redirect to Dashboard
-​```
+```
 
 - Signup always creates an **Employee**. Roles are assigned only by an Admin through the promote endpoint, which rejects `ADMIN` as a target.
 - Emails are stored trimmed and lowercase, and compared ignoring case, so `Priya@X.com` and `priya@x.com` are one account. Two simultaneous signups for one address can't both succeed.
@@ -169,7 +169,7 @@ Frontend-->>User: Redirect to Dashboard
 
 ## Asset Lifecycle
 
-​```mermaid
+```mermaid
 stateDiagram-v2
 
 [*] --> Available
@@ -186,7 +186,7 @@ Allocated --> Lost
 UnderMaintenance --> Lost
 Lost --> Available: found
 Disposed --> [*]
-​```
+```
 
 Allocated and Under Maintenance are managed by the allocation and maintenance workflows and can't be set by hand; Lost, Found, Retired and Disposed are set through `POST /api/assets/:id/status`. Marking an allocated asset lost closes its allocation; losing or retiring a bookable asset cancels its upcoming bookings and notifies the bookers. A disposed asset is final. Every transition is written to `AssetHistory`.
 
@@ -215,7 +215,7 @@ Allocated and Under Maintenance are managed by the allocation and maintenance wo
 
 ## Project Structure
 
-​```
+```
 assetflow/
 ├── app/
 │   ├── (protected)/           # dashboard, assets, allocations, bookings, maintenance, audits, reports, activity, org-setup
@@ -253,7 +253,7 @@ assetflow/
 ├── docker-compose.yml         # postgres, pgbouncer, redis
 ├── .env.example
 └── README.md
-​```
+```
 
 ---
 
@@ -267,18 +267,18 @@ assetflow/
 
 ### 1. Clone and install
 
-​```powershell
+```powershell
 git clone <repo-url>
 cd assetflow
 npm install
-​```
+```
 
 ### 2. Start Postgres, PgBouncer and Redis
 
-​```powershell
+```powershell
 docker compose up -d
 docker compose ps
-​```
+```
 
 | Service | Port | Used for |
 |---|---|---|
@@ -288,36 +288,36 @@ docker compose ps
 
 ### 3. Configure environment variables
 
-​```powershell
+```powershell
 Copy-Item .env.example .env
 npx auth secret    # paste the generated value into AUTH_SECRET
-​```
+```
 
 `.env` needs four values (see `.env.example`):
 
-​```
+```
 DATABASE_URL="postgresql://assetflow:assetflow@localhost:6432/assetflow?schema=public&pgbouncer=true"
 DIRECT_URL="postgresql://assetflow:assetflow@localhost:5433/assetflow?schema=public"
 REDIS_URL="redis://localhost:6379"
 AUTH_SECRET="replace-with-a-long-random-string"
-​```
+```
 
 `DATABASE_URL` goes through PgBouncer; `DIRECT_URL` goes straight to Postgres because migrations can't use transaction pooling.
 
 ### 4. Migrate and seed
 
-​```powershell
+```powershell
 npx prisma generate
 npx prisma migrate dev
 npx prisma db seed
-​```
+```
 
 ### 5. Run (two terminals)
 
-​```powershell
+```powershell
 npm run dev        # terminal 1: the web app on http://localhost:3000
 npm run worker     # terminal 2: the background worker
-​```
+```
 
 The app works without the worker running: notifications created in the meantime wait in Redis and are delivered when the worker starts. Scheduled jobs (overdue sweep, booking reminders and status changes) only run while the worker is up.
 
@@ -334,13 +334,13 @@ Seeded accounts (password `password123`):
 
 ## Testing
 
-​```powershell
+```powershell
 # one-time: a separate database, because the tests wipe their tables
 docker compose exec postgres psql -U assetflow -d postgres -c "CREATE DATABASE assetflow_test;"
 
 npm test               # run everything
 npm run test:watch     # re-run affected tests on save
-​```
+```
 
 The tests call the real route handlers and library code against a real Postgres (`assetflow_test`; they refuse to run against any database whose name doesn't end in `_test`). They cover:
 
@@ -379,13 +379,13 @@ Full schema: `prisma/schema.prisma`.
 
 Base URL: `/api` (Next.js route handlers under `app/api/`).
 
-​```json
+```json
 // Errors
 { "error": "machine_readable_code", "message": "Human readable", "field": "email" }
 
 // Allocation conflict (409)
 { "error": "asset_already_allocated", "message": "...", "currentlyHeldBy": { "id": 7, "name": "..." } }
-​```
+```
 
 Sessions use NextAuth's JWT cookie. List endpoints currently return plain arrays (or `{ data, total }` with no paging); pagination is on the roadmap.
 
