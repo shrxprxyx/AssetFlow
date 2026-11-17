@@ -235,7 +235,7 @@ docker compose ps
 Create `.env` at the project root:
 
 ```
-DATABASE_URL="postgresql://assetflow:assetflow@localhost:5432/assetflow?schema=public"
+DATABASE_URL="postgresql://assetflow:assetflow@localhost:5433/assetflow?schema=public"
 AUTH_SECRET="replace-with-a-long-random-string"
 ```
 
