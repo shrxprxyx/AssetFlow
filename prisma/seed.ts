@@ -207,6 +207,14 @@ async function main() {
     },
   });
 
+  // The seed chose its own asset tags; move the tag sequence past them.
+  await prisma.$queryRawUnsafe(`
+    SELECT setval('asset_tag_seq', GREATEST(
+      COALESCE((SELECT max(substring("assetTag" from 4)::bigint) FROM "Asset" WHERE "assetTag" ~ '^AF-[0-9]+$'), 0),
+      (SELECT last_value FROM asset_tag_seq)
+    ), true)
+  `);
+
   console.log("Seed complete.");
   console.log({
     admin: admin.email,

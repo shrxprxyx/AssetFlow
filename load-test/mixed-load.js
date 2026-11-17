@@ -41,12 +41,23 @@ const bookingsCreated = new Counter("bookings_created");
 const bookingConflicts = new Counter("booking_conflicts");
 const allocationCycles = new Counter("allocation_cycles");
 
+// Every endpoint, so the summary shows which one is slow. (A threshold that always passes
+// is how k6 is told to keep a separate result for that tag.)
+const ENDPOINTS = [
+  "assets_list", "assets_filtered", "assets_search", "dashboard", "notifications", "activity",
+  "allocations_list", "bookings_day", "transfers_list",
+  "booking_create", "asset_create", "allocation_create", "allocation_return", "hot_asset_allocate", "notifications_read",
+];
+const perEndpoint = {};
+for (const name of ENDPOINTS) perEndpoint[`http_req_duration{endpoint:${name}}`] = ["max>=0"];
+
 export const options = {
   scenarios: {
     read_heavy: { executor: "constant-vus", vus: READ_VUS, duration: DURATION, exec: "readFlow" },
     write_light: { executor: "constant-vus", vus: WRITE_VUS, duration: DURATION, exec: "writeFlow" },
   },
   thresholds: {
+    ...perEndpoint,
     "http_req_duration{kind:read}": ["p(95)<500"],
     "http_req_duration{kind:write}": ["p(95)<1000"],
     http_req_failed: ["rate<0.01"],
@@ -58,7 +69,13 @@ export const options = {
 /* ───────────────────────────── helpers ───────────────────────────── */
 
 function login(email) {
-  const csrf = http.get(`${BASE}/api/auth/csrf`).json("csrfToken");
+  const csrfRes = http.get(`${BASE}/api/auth/csrf`);
+  if (csrfRes.status === 0) {
+    throw new Error(
+      `Nothing is listening at ${BASE}. Start the app first (npm run build, then npm start) and run k6 in a separate terminal.`
+    );
+  }
+  const csrf = csrfRes.json("csrfToken");
   http.post(
     `${BASE}/api/auth/callback/credentials`,
     { csrfToken: csrf, email, password: PASSWORD, json: "true" },
@@ -228,6 +245,15 @@ export function handleSummary(data) {
     `| Bookings created / conflicts (409) | ${val(data, "bookings_created", "count") || 0} / ${val(data, "booking_conflicts", "count") || 0} |`,
     `| Allocate-and-return cycles | ${val(data, "allocation_cycles", "count") || 0} |`,
     `| Winners for the one shared asset | ${val(data, "hot_asset_allocations", "count") || 0} (must be 1) |`,
+    ``,
+    `## Per endpoint (slowest first)`,
+    ``,
+    `| Endpoint | p50 | p95 | max |`,
+    `|---|---|---|---|`,
+    ...ENDPOINTS.map((name) => ({ name, m: data.metrics[`http_req_duration{endpoint:${name}}`] }))
+      .filter((e) => e.m)
+      .sort((a, b) => b.m.values["p(95)"] - a.m.values["p(95)"])
+      .map((e) => `| ${e.name} | ${ms(e.m.values.med)} | ${ms(e.m.values["p(95)"])} | ${ms(e.m.values.max)} |`),
     ``,
     `After the run, execute load-test/integrity-check.sql: every query must return zero rows.`,
     ``,

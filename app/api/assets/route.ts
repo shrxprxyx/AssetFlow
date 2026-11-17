@@ -5,6 +5,7 @@ import { AssetStatus } from '@prisma/client';
 import { requireAuth, requireWriteAuth } from '@/lib/guards';
 import { readJson, validationError } from '@/lib/http';
 import { parsePagination, paginated } from '@/lib/pagination';
+import { nextAssetTag, syncAssetTagSequence } from '@/lib/assetTag';
 
 const VALID_ASSET_STATUSES = Object.values(AssetStatus);
 const ci = (v: string) => ({ contains: v, mode: 'insensitive' as const });
@@ -28,16 +29,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    async function nextAssetTag() {
-      const last = await prisma.asset.findFirst({
-        orderBy: { assetTag: 'desc' },
-        select: { assetTag: true },
-      });
-      const lastNum = last ? parseInt(last.assetTag.replace('AF-', ''), 10) : 0;
-      return `AF-${String(lastNum + 1).padStart(4, '0')}`;
-    }
-
     let asset = null;
+    let resynced = false;
     for (let attempt = 0; attempt < 5 && !asset; attempt++) {
       const assetTag = await nextAssetTag();
       try {
@@ -60,12 +53,18 @@ export async function POST(req: NextRequest) {
         });
       } catch (e) {
         if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
-        // Unique violation: duplicate serial (real conflict) or a tag race (retry).
+        // Unique violation: a duplicate serial is a real conflict. A taken tag means
+        // an asset was added with a chosen tag (seed, import): move the sequence
+        // past the existing tags once, then try again.
         if (String(e.meta?.target ?? '').includes('serialNumber')) {
           return NextResponse.json(
             { error: 'serial_taken', message: 'An asset with this serial number already exists', field: 'serialNumber' },
             { status: 409 }
           );
+        }
+        if (!resynced) {
+          resynced = true;
+          await syncAssetTagSequence();
         }
       }
     }

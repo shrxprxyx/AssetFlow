@@ -9,6 +9,8 @@ export async function resetDb() {
   `;
   const list = rows.map((r) => `"${r.tablename}"`).join(", ");
   await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`);
+  // Asset tags come from a standalone sequence, which TRUNCATE does not reset.
+  await prisma.$executeRawUnsafe(`ALTER SEQUENCE asset_tag_seq RESTART WITH 1`);
 }
 
 let seq = 0;
