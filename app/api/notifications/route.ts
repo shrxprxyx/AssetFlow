@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/guards";
+import { requireAuth, requireWriteAuth } from "@/lib/guards";
 
 export async function GET() {
   const guard = await requireAuth();
@@ -22,7 +22,7 @@ export async function GET() {
 
 // Body: { ids?: number[] }. Omit ids to mark everything read.
 export async function POST(req: NextRequest) {
-  const guard = await requireAuth();
+  const guard = await requireWriteAuth();
   if (!guard.ok) return guard.response;
   const userId = guard.user.userId;
 

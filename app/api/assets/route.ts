@@ -2,7 +2,7 @@ import { prisma, Prisma } from '@/lib/prisma';
 import { CreateAssetSchema } from '@/lib/schemas';
 import { NextRequest, NextResponse } from 'next/server';
 import { AssetStatus } from '@prisma/client';
-import { requireAuth } from '@/lib/guards';
+import { requireAuth, requireWriteAuth } from '@/lib/guards';
 import { readJson, validationError } from '@/lib/http';
 import { parsePagination, paginated } from '@/lib/pagination';
 
@@ -10,7 +10,7 @@ const VALID_ASSET_STATUSES = Object.values(AssetStatus);
 const ci = (v: string) => ({ contains: v, mode: 'insensitive' as const });
 
 export async function POST(req: NextRequest) {
-  const guard = await requireAuth('ADMIN', 'ASSET_MANAGER');
+  const guard = await requireWriteAuth('ADMIN', 'ASSET_MANAGER');
   if (!guard.ok) return guard.response;
 
   const json = await readJson(req);

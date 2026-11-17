@@ -3,10 +3,15 @@ import { forgotPasswordSchema } from "@/lib/schemas";
 import { normalizeEmail } from "@/lib/userLookup";
 import { requestPasswordReset } from "@/lib/passwordReset";
 import { readJson, validationError } from "@/lib/http";
+import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/lib/rateLimit";
 
 // POST /api/auth/forgot-password  { email }
 // Public. Answers the same way whether or not the address has an account.
 export async function POST(req: NextRequest) {
+  // Limits by address only, so the answer never depends on whether an account exists.
+  const limited = await rateLimit(LIMITS.forgotPassword, clientIp(req));
+  if (!limited.allowed) return tooManyRequests(limited, "Too many reset requests. Please try again later.");
+
   const json = await readJson(req);
   if (!json.ok) return json.response;
 

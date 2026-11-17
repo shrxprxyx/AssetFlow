@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { ReturnAssetSchema } from '@/lib/schemas';
 import { returnAsset } from '@/lib/allocations';
 import { logActivity } from '@/lib/logActivity';
-import { requireAuth } from '@/lib/guards';
+import { requireWriteAuth } from '@/lib/guards';
 import { NextRequest, NextResponse } from 'next/server';
 
 // Mark an allocation returned + capture the condition check-in.
@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const guard = await requireAuth();
+  const guard = await requireWriteAuth();
   if (!guard.ok) return guard.response;
   const { user } = guard;
 

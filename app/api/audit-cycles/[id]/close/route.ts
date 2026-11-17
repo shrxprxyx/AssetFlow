@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/guards";
+import { requireWriteAuth } from "@/lib/guards";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { logActivity } from "@/lib/logActivity";
@@ -23,7 +23,7 @@ export async function POST(
 ) {
   const { id } = await params;
   // Role comes from the database, not the login token.
-  const guard = await requireAuth("ADMIN");
+  const guard = await requireWriteAuth("ADMIN");
   if (!guard.ok) return guard.response;
 
   const cycleId = Number(id);

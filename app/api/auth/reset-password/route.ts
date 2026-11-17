@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { resetPasswordSchema } from "@/lib/schemas";
 import { resetPassword } from "@/lib/passwordReset";
 import { readJson, validationError } from "@/lib/http";
+import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/lib/rateLimit";
 
 // POST /api/auth/reset-password  { token, password }
 // Public. The token from the emailed link is the proof of identity.
 export async function POST(req: NextRequest) {
+  const limited = await rateLimit(LIMITS.resetPassword, clientIp(req));
+  if (!limited.allowed) return tooManyRequests(limited, "Too many attempts. Please try again later.");
+
   const json = await readJson(req);
   if (!json.ok) return json.response;
   const parsed = resetPasswordSchema.safeParse(json.body);

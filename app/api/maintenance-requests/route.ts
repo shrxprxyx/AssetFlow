@@ -4,7 +4,7 @@ import { maintenanceRequestSchema } from "@/lib/schemas";
 import { raiseMaintenanceRequest } from "@/lib/maintenance";
 import { logActivity } from "@/lib/logActivity";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/guards";
+import { requireAuth, requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
 import { parsePagination, paginated } from "@/lib/pagination";
 
@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireAuth();
+  const guard = await requireWriteAuth();
   if (!guard.ok) return guard.response;
   const requesterId = guard.user.userId;
 

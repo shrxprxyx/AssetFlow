@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { bookingSchema } from "@/lib/schemas";
 import { createBooking, getBookingsForResource } from "@/lib/bookings";
 import { logActivity } from "@/lib/logActivity";
-import { requireAuth } from "@/lib/guards";
+import { requireAuth, requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
 
 export async function GET(req: NextRequest) {
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireAuth();
+  const guard = await requireWriteAuth();
   if (!guard.ok) return guard.response;
   const bookerId = guard.user.userId;
 

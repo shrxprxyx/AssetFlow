@@ -1,7 +1,7 @@
 import { prisma, Prisma } from '@/lib/prisma';
 import { CreateAssetCategorySchema, UpdateAssetCategorySchema } from '@/lib/schemas';
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/guards';
+import { requireAuth, requireWriteAuth } from '@/lib/guards';
 import { readJson, validationError } from '@/lib/http';
 
 const bad = (message: string, field?: string, status = 400) =>
@@ -11,7 +11,7 @@ const isDuplicate = (e: unknown) =>
   e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
 
 export async function POST(req: NextRequest) {
-  const guard = await requireAuth('ADMIN', 'ASSET_MANAGER');
+  const guard = await requireWriteAuth('ADMIN', 'ASSET_MANAGER');
   if (!guard.ok) return guard.response;
 
   const json = await readJson(req);
@@ -51,7 +51,7 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const guard = await requireAuth('ADMIN', 'ASSET_MANAGER');
+  const guard = await requireWriteAuth('ADMIN', 'ASSET_MANAGER');
   if (!guard.ok) return guard.response;
 
   const json = await readJson(req);
@@ -84,7 +84,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = await requireAuth('ADMIN', 'ASSET_MANAGER');
+  const guard = await requireWriteAuth('ADMIN', 'ASSET_MANAGER');
   if (!guard.ok) return guard.response;
 
   const json = await readJson(req);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/lib/guards";
+import { requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
 import { logActivity } from "@/lib/logActivity";
 import { changeAssetStatus } from "@/lib/assetLifecycle";
@@ -22,7 +22,7 @@ async function safeLog(action: string, opts: Parameters<typeof logActivity>[1]) 
 
 // POST /api/assets/:id/status  { status: "LOST" | "RETIRED" | "DISPOSED" | "AVAILABLE", reason? }
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireAuth("ADMIN", "ASSET_MANAGER");
+  const guard = await requireWriteAuth("ADMIN", "ASSET_MANAGER");
   if (!guard.ok) return guard.response;
   const actorId = guard.user.userId;
 

@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { TransferAssetSchema } from "@/lib/schemas";
 import { createTransferRequest } from "@/lib/transfers";
 import { logActivity } from "@/lib/logActivity";
-import { requireAuth } from "@/lib/guards";
+import { requireWriteAuth } from "@/lib/guards";
 
 // Creates a transfer REQUEST. The asset doesn't move until it's approved
 // (managers' own requests are approved immediately; see lib/transfers.ts).
 export async function POST(req: NextRequest) {
-  const guard = await requireAuth();
+  const guard = await requireWriteAuth();
   if (!guard.ok) return guard.response;
   const { user } = guard;
 

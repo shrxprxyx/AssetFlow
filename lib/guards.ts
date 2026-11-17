@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { LIMITS, rateLimit, tooManyRequests } from "@/lib/rateLimit";
 
 export type Role = "ADMIN" | "ASSET_MANAGER" | "DEPARTMENT_HEAD" | "EMPLOYEE";
 
@@ -76,4 +77,24 @@ export async function requireAuth(...allowedRoles: Role[]): Promise<GuardResult>
     ok: true,
     user: { userId: user.id, email: user.email, role, departmentId: user.departmentId },
   };
+}
+
+
+/**
+ * requireAuth for handlers that change data (POST, PUT, PATCH, DELETE).
+ * Same checks, plus a per-user limit on how fast writes may arrive, so one
+ * runaway script or stuck client can't flood the database. Reads are not limited.
+ */
+export async function requireWriteAuth(...allowedRoles: Role[]): Promise<GuardResult> {
+  const guard = await requireAuth(...allowedRoles);
+  if (!guard.ok) return guard;
+
+  const result = await rateLimit(LIMITS.writes, String(guard.user.userId));
+  if (!result.allowed) {
+    return {
+      ok: false,
+      response: tooManyRequests(result, "You are making changes too quickly. Please slow down."),
+    };
+  }
+  return guard;
 }

@@ -1,4 +1,5 @@
-import { vi, beforeAll } from "vitest";
+import { vi, beforeAll, beforeEach } from "vitest";
+import { resetRateLimitsForTests } from "@/lib/rateLimit";
 
 // Replace NextAuth: tests choose who is "signed in" with signInAs()/signOut().
 vi.mock("@/auth", () => ({
@@ -15,3 +16,6 @@ beforeAll(() => {
     throw new Error(`Refusing to run tests: DATABASE_URL "${url}" is not a *_test database.`);
   }
 });
+
+// Every test starts with empty rate-limit counters.
+beforeEach(() => resetRateLimitsForTests());

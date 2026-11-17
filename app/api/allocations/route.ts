@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { CreateAllocationSchema } from '@/lib/schemas';
 import { allocateAsset } from '@/lib/allocations';
 import { logActivity } from '@/lib/logActivity';
-import { requireAuth } from '@/lib/guards';
+import { requireAuth, requireWriteAuth } from '@/lib/guards';
 import { readJson, validationError } from '@/lib/http';
 import { parsePagination, paginated } from '@/lib/pagination';
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,7 +13,7 @@ const VALID_ALLOCATION_STATUSES = Object.values(AllocationStatus);
 export async function POST(req: NextRequest) {
   // Spec: Asset Managers allocate; Department Heads approve/allocate within
   // their department. Employees can't hand assets out.
-  const guard = await requireAuth('ADMIN', 'ASSET_MANAGER', 'DEPARTMENT_HEAD');
+  const guard = await requireWriteAuth('ADMIN', 'ASSET_MANAGER', 'DEPARTMENT_HEAD');
   if (!guard.ok) return guard.response;
   const actorId = guard.user.userId;
 

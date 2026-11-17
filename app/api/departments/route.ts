@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { CreateDepartmentSchema, UpdateDepartmentSchema } from '@/lib/schemas';
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/guards';
+import { requireAuth, requireWriteAuth } from '@/lib/guards';
 import { readJson, validationError } from '@/lib/http';
 
 const bad = (message: string, field?: string, status = 400) =>
@@ -38,7 +38,7 @@ async function checkRefs(parentDeptId?: number | null, headId?: number | null) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireAuth('ADMIN');
+  const guard = await requireWriteAuth('ADMIN');
   if (!guard.ok) return guard.response;
 
   const json = await readJson(req);
@@ -85,7 +85,7 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const guard = await requireAuth('ADMIN');
+  const guard = await requireWriteAuth('ADMIN');
   if (!guard.ok) return guard.response;
 
   const json = await readJson(req);
@@ -123,7 +123,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = await requireAuth('ADMIN');
+  const guard = await requireWriteAuth('ADMIN');
   if (!guard.ok) return guard.response;
 
   const json = await readJson(req);

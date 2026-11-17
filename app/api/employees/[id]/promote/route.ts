@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { promoteSchema } from "@/lib/schemas";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/logActivity";
-import { requireAuth } from "@/lib/guards";
+import { requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
 
 // Changes an employee's role (promote or demote). Admin only.
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // Role is read from the database, not the login token, so a demoted admin
   // loses this power immediately instead of when their token expires.
-  const guard = await requireAuth("ADMIN");
+  const guard = await requireWriteAuth("ADMIN");
   if (!guard.ok) return guard.response;
 
   const employeeId = Number(id);

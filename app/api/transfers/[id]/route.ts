@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { approveTransfer, rejectTransfer, cancelTransfer } from "@/lib/transfers";
 import { logActivity } from "@/lib/logActivity";
-import { requireAuth } from "@/lib/guards";
+import { requireWriteAuth } from "@/lib/guards";
 
 const bodySchema = z.object({ action: z.enum(["approve", "reject", "cancel"]) });
 
 // PATCH /api/transfers/:id   { "action": "approve" | "reject" | "cancel" }
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireAuth();
+  const guard = await requireWriteAuth();
   if (!guard.ok) return guard.response;
   const { user } = guard;
 

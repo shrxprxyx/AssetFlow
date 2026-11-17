@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/guards";
+import { requireAuth, requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
 import { logActivity } from "@/lib/logActivity";
 import { updateAsset } from "@/lib/assetLifecycle";
@@ -62,7 +62,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 // PATCH /api/assets/:id  -> edit details (status changes go through /status)
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireAuth("ADMIN", "ASSET_MANAGER");
+  const guard = await requireWriteAuth("ADMIN", "ASSET_MANAGER");
   if (!guard.ok) return guard.response;
 
   const id = Number((await params).id);

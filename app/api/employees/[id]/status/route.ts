@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/logActivity";
-import { requireAuth } from "@/lib/guards";
+import { requireWriteAuth } from "@/lib/guards";
 
 // Body: { status: "ACTIVE" | "INACTIVE" }. Admin only.
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const guard = await requireAuth("ADMIN");
+  const guard = await requireWriteAuth("ADMIN");
   if (!guard.ok) return guard.response;
 
   const employeeId = Number(id);

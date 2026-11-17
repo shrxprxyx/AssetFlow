@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auditFindingSchema } from "@/lib/schemas";
 import { logActivity } from "@/lib/logActivity";
-import { requireAuth } from "@/lib/guards";
+import { requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -10,7 +10,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // Only people who can run an audit may record findings. (With a single
   // implicit auditor per cycle, "auditor" = Admin or Asset Manager.)
-  const guard = await requireAuth("ADMIN", "ASSET_MANAGER");
+  const guard = await requireWriteAuth("ADMIN", "ASSET_MANAGER");
   if (!guard.ok) return guard.response;
   const auditorId = guard.user.userId;
 

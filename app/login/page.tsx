@@ -22,6 +22,10 @@ export default function LoginPage() {
       });
 
       if (res?.error) {
+        // next-auth sets code to "rate_limited" when the server refused too many attempts.
+        if (res.code === "rate_limited") {
+          throw new Error("Too many sign-in attempts. Please wait a few minutes and try again.");
+        }
         throw new Error("Invalid email or password");
       }
 

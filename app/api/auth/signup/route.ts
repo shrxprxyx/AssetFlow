@@ -4,6 +4,7 @@ import { signupSchema } from "@/lib/schemas";
 import { prisma, Prisma } from "@/lib/prisma";
 import { findUserByEmail, normalizeEmail } from "@/lib/userLookup";
 import { readJson, validationError } from "@/lib/http";
+import { LIMITS, clientIp, rateLimit, tooManyRequests } from "@/lib/rateLimit";
 
 const emailTaken = () =>
   NextResponse.json(
@@ -12,6 +13,10 @@ const emailTaken = () =>
   );
 
 export async function POST(req: NextRequest) {
+  // Every attempt counts, successful or not.
+  const limited = await rateLimit(LIMITS.signup, clientIp(req));
+  if (!limited.allowed) return tooManyRequests(limited, "Too many sign-up attempts. Please try again later.");
+
   const json = await readJson(req);
   if (!json.ok) return json.response;
 

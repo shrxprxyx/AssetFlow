@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auditCycleSchema } from "@/lib/schemas";
 import { logActivity } from "@/lib/logActivity";
-import { requireAuth } from "@/lib/guards";
+import { requireAuth, requireWriteAuth } from "@/lib/guards";
 import { parsePagination, paginated } from "@/lib/pagination";
 
 // Same scoping rule as getAssetsInScope() in lib/audits.ts, but returns a count
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/audit-cycles -> Admin creates a cycle
 export async function POST(req: NextRequest) {
-  const guard = await requireAuth("ADMIN");
+  const guard = await requireWriteAuth("ADMIN");
   if (!guard.ok) return guard.response;
 
   let body: unknown;

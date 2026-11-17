@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/logActivity";
-import { requireAuth } from "@/lib/guards";
+import { requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
 import {
   approveMaintenanceRequest,
@@ -28,7 +28,7 @@ const MANAGER_ROLES = ["ASSET_MANAGER", "ADMIN"];
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   // Role comes from the database, not the login token.
-  const guard = await requireAuth();
+  const guard = await requireWriteAuth();
   if (!guard.ok) return guard.response;
   const { user } = guard;
 
