@@ -26,7 +26,8 @@ export async function raiseMaintenanceRequest(
   assetId: number,
   requesterId: number,
   description: string,
-  priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
+  priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
+  photoUrl?: string
 ) {
   const asset = await prisma.asset.findUnique({ where: { id: assetId }, select: { status: true } });
   if (!asset) {
@@ -37,7 +38,7 @@ export async function raiseMaintenanceRequest(
   }
 
   return prisma.maintenanceRequest.create({
-    data: { assetId, requesterId, description, priority, status: "PENDING" },
+    data: { assetId, requesterId, description, priority, photoUrl, status: "PENDING" },
   });
 }
 

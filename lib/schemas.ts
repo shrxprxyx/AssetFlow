@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { isAcceptablePhotoUrl, PHOTO_URL_MESSAGE } from "./imageUpload";
+
+/** An uploaded photo ("/api/files/...") or an http(s) link. */
+export const photoUrlSchema = z.string().trim().refine(isAcceptablePhotoUrl, PHOTO_URL_MESSAGE);
 
 // ── Auth Schemas ─────────────────────────────────────
 export const signupSchema = z.object({
@@ -129,6 +133,7 @@ export const maintenanceRequestSchema = z.object({
   assetId: z.coerce.number().int().positive(),
   description: z.string().min(5, "Description required"),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).default("MEDIUM"),
+  photoUrl: z.preprocess((v) => (v === "" || v === null ? undefined : v), photoUrlSchema.optional()),
 });
 export type MaintenanceRequestInput = z.infer<typeof maintenanceRequestSchema>;
 
@@ -177,7 +182,7 @@ export const CreateAssetCategorySchema = AssetCategorySchema;
 export const UpdateAssetCategorySchema = categoryUpdateSchema;
 
 export const AssetSchema = assetSchema.extend({
-  photoUrl: z.string().optional(),
+  photoUrl: photoUrlSchema.optional(),
 });
 export const CreateAssetSchema = AssetSchema;
 

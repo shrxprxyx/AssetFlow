@@ -41,6 +41,8 @@ export const LIMITS = {
   resetPassword: { name: "reset-password", limit: 20, windowSec: 60 * 60 },
   /** Any POST/PUT/PATCH/DELETE by a signed-in user. */
   writes: { name: "writes", limit: 120, windowSec: 60 },
+  /** Photo uploads per user, on top of the general write limit. */
+  uploads: { name: "uploads", limit: 30, windowSec: 10 * 60 },
 } satisfies Record<string, RateLimitRule>;
 
 /* ─────────────────────────────── memory store ─────────────────────────────── */

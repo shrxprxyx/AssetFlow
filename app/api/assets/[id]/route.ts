@@ -5,6 +5,7 @@ import { requireAuth, requireWriteAuth } from "@/lib/guards";
 import { readJson, validationError } from "@/lib/http";
 import { logActivity } from "@/lib/logActivity";
 import { updateAsset } from "@/lib/assetLifecycle";
+import { photoUrlSchema } from "@/lib/schemas";
 
 const badId = () =>
   NextResponse.json({ error: "invalid_id", message: "Invalid asset id" }, { status: 400 });
@@ -25,7 +26,7 @@ const assetUpdateSchema = z
     condition: z.enum(["GOOD", "FAIR", "POOR"]).optional(),
     location: z.preprocess(blankToNull, z.string().nullable()).optional(),
     isBookable: z.boolean().optional(),
-    photoUrl: z.preprocess(blankToNull, z.string().nullable()).optional(),
+    photoUrl: z.preprocess(blankToNull, photoUrlSchema.nullable()).optional(),
     notes: z.preprocess(blankToNull, z.string().nullable()).optional(),
   })
   .refine((d) => Object.keys(d).length > 0, { message: "Provide at least one field to change" });

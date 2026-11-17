@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import { LoadingState, EmptyState } from "@/components/ui";
 import { Pager } from "@/components/pager";
+import { PhotoField } from "@/components/photo-field";
 import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────
@@ -47,6 +48,7 @@ type Asset = {
   isBookable: boolean;
   status: AssetStatus;
   notes: string | null;
+  photoUrl?: string | null;
   currentHolder?: { id: number; firstName: string; lastName: string } | null;
 };
 
@@ -60,6 +62,7 @@ type FormState = {
   location: string;
   isBookable: boolean;
   notes: string;
+  photoUrl: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -72,6 +75,7 @@ const EMPTY_FORM: FormState = {
   location: "",
   isBookable: false,
   notes: "",
+  photoUrl: "",
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -229,6 +233,11 @@ function AssetFormFields({
         onChange={(e) => setForm({ ...form, notes: e.target.value })}
         className={cn(inputClass, "sm:col-span-2")}
       />
+      <PhotoField
+        value={form.photoUrl}
+        onChange={(photoUrl) => setForm({ ...form, photoUrl })}
+        className="sm:col-span-3"
+      />
       <label className="flex items-center gap-2 text-sm text-foreground px-1">
         <input
           type="checkbox"
@@ -262,6 +271,7 @@ function buildPatch(orig: Asset, f: FormState): { patch: Record<string, unknown>
   setText("serialNumber", f.serialNumber, orig.serialNumber);
   setText("location", f.location, orig.location);
   setText("notes", f.notes, orig.notes);
+  setText("photoUrl", f.photoUrl, orig.photoUrl ?? null);
 
   if (f.acquisitionDate !== (orig.acquisitionDate ?? "").slice(0, 10)) {
     patch.acquisitionDate = f.acquisitionDate || null;
@@ -390,6 +400,7 @@ export default function AssetsPage() {
       location: a.location ?? "",
       isBookable: a.isBookable,
       notes: a.notes ?? "",
+      photoUrl: a.photoUrl ?? "",
     });
     setEditing(a);
   }, []);
@@ -421,6 +432,14 @@ export default function AssetsPage() {
         header: ({ column }) => <SortableHeader label="Name" column={column} />,
         cell: ({ row }) => (
           <span className="font-medium text-foreground">
+            {row.original.photoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={row.original.photoUrl}
+                alt=""
+                className="mr-2 inline-block h-6 w-6 rounded border border-border object-cover align-middle"
+              />
+            )}
             {row.original.name}
             {row.original.isBookable && (
               <Pill className="ml-2 bg-primary/10 text-primary">Bookable</Pill>
@@ -544,6 +563,7 @@ export default function AssetsPage() {
           location: form.location || undefined,
           isBookable: form.isBookable,
           notes: form.notes || undefined,
+          photoUrl: form.photoUrl || undefined,
         }),
       });
       const data = await res.json();

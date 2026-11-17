@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PhotoField } from "@/components/photo-field";
 import { cn } from "@/lib/utils";
 
 type MaintenanceRequest = {
@@ -14,6 +15,7 @@ type MaintenanceRequest = {
   status: "PENDING" | "APPROVED" | "REJECTED" | "IN_PROGRESS" | "RESOLVED";
   technicianId: number | null;
   resolutionNotes: string | null;
+  photoUrl?: string | null;
   asset: { assetTag: string; name: string };
   requester: { firstName: string; lastName: string };
 };
@@ -54,7 +56,7 @@ export default function MaintenancePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [form, setForm] = useState({ assetId: "", description: "", priority: "MEDIUM" });
+  const [form, setForm] = useState({ assetId: "", description: "", priority: "MEDIUM", photoUrl: "" });
   const [submitting, setSubmitting] = useState(false);
 
   // Per-card ephemeral inputs (technician id to assign, resolution notes to resolve)
@@ -89,6 +91,7 @@ export default function MaintenancePage() {
           assetId: Number(form.assetId),
           description: form.description,
           priority: form.priority,
+          photoUrl: form.photoUrl || undefined,
         }),
       });
       const data = await res.json();
@@ -96,7 +99,7 @@ export default function MaintenancePage() {
         setError(data.message ?? "Couldn't raise the request");
         return;
       }
-      setForm({ assetId: "", description: "", priority: "MEDIUM" });
+      setForm({ assetId: "", description: "", priority: "MEDIUM", photoUrl: "" });
       refetch();
     } finally {
       setSubmitting(false);
@@ -176,6 +179,12 @@ export default function MaintenancePage() {
               {submitting ? "Raising…" : "Raise Request"}
             </Button>
           </div>
+          <PhotoField
+            value={form.photoUrl}
+            onChange={(photoUrl) => setForm({ ...form, photoUrl })}
+            label="Photo of the problem (optional)"
+            className="mt-3 sm:max-w-md"
+          />
           {error && <p className="text-sm text-destructive mt-3">{error}</p>}
         </CardContent>
       </Card>
@@ -213,6 +222,16 @@ export default function MaintenancePage() {
                         </span>
                       </div>
                       <p className="text-sm text-muted-foreground mb-2">{r.description}</p>
+                      {r.photoUrl && (
+                        <a href={r.photoUrl} target="_blank" rel="noreferrer" className="mb-2 block">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={r.photoUrl}
+                            alt="Photo of the problem"
+                            className="h-28 w-full rounded-lg border border-border object-cover"
+                          />
+                        </a>
+                      )}
                       <p className="text-xs text-muted-foreground mb-3">
                         Raised by {r.requester.firstName} {r.requester.lastName}
                       </p>

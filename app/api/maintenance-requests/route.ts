@@ -70,10 +70,10 @@ export async function POST(req: NextRequest) {
   if (!json.ok) return json.response;
   const parsed = maintenanceRequestSchema.safeParse(json.body);
   if (!parsed.success) return validationError(parsed.error);
-  const { assetId, description, priority } = parsed.data;
+  const { assetId, description, priority, photoUrl } = parsed.data;
 
   try {
-    const request = await raiseMaintenanceRequest(assetId, requesterId, description, priority);
+    const request = await raiseMaintenanceRequest(assetId, requesterId, description, priority, photoUrl);
     await logActivity("maintenance_raised", {
       actorId: requesterId,
       resourceType: "MaintenanceRequest",
