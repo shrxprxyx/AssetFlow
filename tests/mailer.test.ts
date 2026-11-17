@@ -112,7 +112,7 @@ describe("sendMail", () => {
 
     await sendMail({ to: "a@x.com\r\nBcc: evil@x.com", subject: "Hi\nBcc: evil@x.com", text: "line1\nline2" });
 
-    const sent = sendMailFn.mock.calls[0][0] as unknown as Record<string, string>;
+    const sent = (sendMailFn.mock.calls as unknown as Record<string, string>[][])[0][0];
     expect(sent.to).not.toMatch(/[\r\n]/);
     expect(sent.subject).not.toMatch(/[\r\n]/);
     expect(sent.text).toBe("line1\nline2"); // the body keeps its line breaks

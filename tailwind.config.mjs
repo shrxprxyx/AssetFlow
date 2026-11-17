@@ -1,9 +1,9 @@
-const { tokens } = require('./styles/tokens');
+const { tokens } = require('./src/styles/tokens');
 
 module.exports = {
   content: [
-    './app/**/*.{js,ts,jsx,tsx}',
-    './components/**/*.{js,ts,jsx,tsx}',
+    './src/app/**/*.{js,ts,jsx,tsx}',
+    './src/components/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     extend: {

@@ -10,10 +10,10 @@
  *      booking reminder / status tick (every minute) and the outbox relay
  *      (every 5 s), which delivers events that never reached the queue.
  */
-import { handleEventJob, relayPending } from "../lib/outbox";
-import { sendMail } from "../lib/mailer";
-import { runOverdueSweep, runBookingTick } from "../lib/sweeps";
-import { prisma } from "../lib/prisma";
+import { handleEventJob, relayPending } from "../src/lib/outbox";
+import { sendMail } from "../src/lib/mailer";
+import { runOverdueSweep, runBookingTick } from "../src/lib/sweeps";
+import { prisma } from "../src/lib/prisma";
 import { startWorkers } from "./runtime";
 
 const log = (...args: unknown[]) => console.log(new Date().toISOString(), "[worker]", ...args);

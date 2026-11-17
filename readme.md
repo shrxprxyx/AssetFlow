@@ -186,6 +186,8 @@ Frontend-->>User: Redirect to Dashboard
 ```
 
 - Signup always creates an **Employee**. Roles are assigned only by an Admin through the promote endpoint, which rejects `ADMIN` as a target.
+- **Email verification:** a new account can't sign in until its emailed link is opened (the password is checked first, so the "not verified" message never reveals which addresses have accounts). Accounts that existed before this change are marked verified by the migration. Completing a password reset also verifies the address.
+- **Session revocation:** every session carries the account's `sessionVersion`; `requireAuth` rejects a session whose version is stale. The version is bumped by a password reset, by deactivating or reactivating the account, and by "sign out everywhere". Sessions last 8 hours.
 - Emails are stored trimmed and lowercase, and compared ignoring case, so `Priya@X.com` and `priya@x.com` are one account. Two simultaneous signups for one address can't both succeed.
 - **Forgot password:** the login page links to a reset form. A reset link is single-use, expires after 30 minutes, and only a hash of its token is stored. Until a mail provider is configured, the email is printed to the console of the worker (`npm run worker`), so copy the link from there.
 - The JWT carries the role for the UI only. **Every API route re-reads the role and account status from the database**, so a demoted or deactivated user loses access immediately, not when their token expires.
@@ -233,42 +235,51 @@ Allocated and Under Maintenance are managed by the allocation and maintenance wo
 | Database | PostgreSQL 16 + PgBouncer | Docker for local dev; migrations bypass the pooler via `DIRECT_URL` |
 | Queue / jobs | Redis 7, BullMQ, ioredis | Separate worker process (`worker/`), run with `tsx` |
 | Auth | NextAuth (Credentials) + bcryptjs | JWT sessions |
-| Validation | Zod | Shared schemas in `lib/schemas.ts` |
+| Validation | Zod | Shared schemas in `src/lib/schemas.ts` |
 | Testing | Vitest | Real Postgres (separate test database) and real Redis |
 
 ---
 
 ## Project Structure
 
+Everything the app itself is made of lives under `src/`; the worker, database files, tests and config stay at the root. The worker imports from `src/lib/`.
+
 ```
 assetflow/
-├── app/
-│   ├── (protected)/           # dashboard, assets, allocations, bookings, maintenance, audits, reports, activity, org-setup
-│   ├── api/                   # route handlers: auth, assets, allocations, bookings, ...
-│   ├── login/
-│   ├── forgot-password/       # ask for a reset link
-│   ├── reset-password/        # choose a new password (from the emailed link)
-│   └── page.tsx               # redirects to /login
-├── components/                # app-sidebar, topbar, notifications-bell, pager, ui/ (shadcn)
-├── lib/
-│   ├── prisma.ts              # Prisma client singleton
-│   ├── schemas.ts             # Zod schemas
-│   ├── guards.ts              # requireAuth(): role + active status read from the database
-│   ├── http.ts                # JSON body + validation-error helpers for routes
-│   ├── pagination.ts          # ?page / ?pageSize parsing + the { data, total, page, pageSize } response
-│   ├── allocations.ts         # allocate / return, row lock + unique-index backstop
-│   ├── transfers.ts           # transfer request and approval workflow
-│   ├── bookings.ts            # booking rules, row lock, cancel, reschedule
-│   ├── maintenance.ts         # maintenance state machine
-│   ├── assetLifecycle.ts      # edit + lost / found / retire / dispose
-│   ├── audits.ts              # audit scoping
-│   ├── notifications.ts       # activity -> who should be notified
-│   ├── logActivity.ts         # audit entry + hands notification work to the queue
-│   ├── queue.ts               # BullMQ producer with fast-fail and circuit breaker
-│   ├── mailer.ts              # sendMail() (console for now) + queued delivery
-│   ├── passwordReset.ts       # reset tokens: issue, verify, consume
-│   ├── sweeps.ts              # overdue sweep + booking tick (plain functions, testable)
-│   └── userLookup.ts          # case-insensitive email lookup
+├── src/
+│   ├── app/
+│   │   ├── (protected)/           # dashboard, assets, allocations, bookings, maintenance, audits, reports, activity, org-setup
+│   │   ├── api/                   # route handlers: auth, assets, allocations, bookings, ...
+│   │   ├── login/
+│   │   ├── forgot-password/       # ask for a reset link
+│   │   ├── reset-password/        # choose a new password (from the emailed link)
+│   │   └── page.tsx               # redirects to /login
+│   ├── components/                # app-sidebar, topbar, notifications-bell, pager, search-select, QR label and scanner, ui/ (shadcn)
+│   ├── lib/
+│   │   ├── prisma.ts              # Prisma client singleton
+│   │   ├── schemas.ts             # Zod schemas
+│   │   ├── guards.ts              # requireAuth(): role + active status read from the database
+│   │   ├── http.ts                # JSON body + validation-error helpers for routes
+│   │   ├── pagination.ts          # ?page / ?pageSize parsing + the { data, total, page, pageSize } response
+│   │   ├── allocations.ts         # allocate / return, row lock + unique-index backstop
+│   │   ├── transfers.ts           # transfer request and approval workflow
+│   │   ├── bookings.ts            # booking rules, row lock, cancel, reschedule
+│   │   ├── maintenance.ts         # maintenance state machine
+│   │   ├── assetLifecycle.ts      # edit + lost / found / retire / dispose
+│   │   ├── audits.ts              # audit scoping
+│   │   ├── notifications.ts       # activity -> who should be notified
+│   │   ├── logActivity.ts         # audit entry + hands notification work to the queue
+│   │   ├── queue.ts               # BullMQ producer with fast-fail and circuit breaker
+│   │   ├── mailer.ts              # sendMail() (console for now) + queued delivery
+│   │   ├── passwordReset.ts       # reset tokens: issue, verify, consume
+│   │   ├── sweeps.ts              # overdue sweep + booking tick (plain functions, testable)
+│   │   └── userLookup.ts          # case-insensitive email lookup
+│   ├── hooks/                     # use-mobile
+│   ├── styles/                    # globals.css, design tokens
+│   ├── types/next-auth.d.ts
+│   ├── proxy.ts                   # runs before every request: redirects unauthenticated users to /login, 401s anonymous API calls
+│   ├── auth.config.ts             # the part of NextAuth setup that is safe to run in proxy.ts
+│   └── auth.ts                    # NextAuth config (Credentials, rate limit, email-verification check)
 ├── worker/
 │   ├── runtime.ts             # starts the event worker + schedules the jobs
 │   └── index.ts               # entry point: npm run worker
@@ -277,9 +288,6 @@ assetflow/
 │   ├── migrations/            # includes the partial unique index and exclusion constraint
 │   └── seed.ts
 ├── tests/                     # Vitest suites + helpers
-├── types/next-auth.d.ts
-├── proxy.ts                   # runs before every request: redirects unauthenticated users to /login, 401s anonymous API calls
-├── auth.ts                    # NextAuth config
 ├── docker-compose.yml         # postgres, pgbouncer, redis
 ├── .env.example
 └── README.md
@@ -332,6 +340,13 @@ REDIS_URL="redis://localhost:6379"
 AUTH_SECRET="replace-with-a-long-random-string"
 APP_URL="http://localhost:3000"
 UPLOAD_DIR="./uploads"
+
+# Optional: real email (without SMTP_HOST, emails are printed to the console)
+SMTP_HOST="smtp.gmail.com"
+SMTP_PORT="587"
+SMTP_USER="you@gmail.com"
+SMTP_PASS="your-app-password"
+MAIL_FROM="AssetFlow <you@gmail.com>"
 ```
 
 In production mode (`npm start`) NextAuth only accepts requests for a host it trusts: on a real server set `AUTH_URL` to the public address, and for local production runs (such as load tests) set `AUTH_TRUST_HOST="true"`. Development (`npm run dev`) needs neither.
@@ -339,6 +354,8 @@ In production mode (`npm start`) NextAuth only accepts requests for a host it tr
 `UPLOAD_DIR` is the folder where uploaded photos are kept (optional; the default is `./uploads`). It is not in git. On a server, point it at a persistent volume and include it in backups.
 
 `APP_URL` is the address used in password-reset links. It is optional in development (the request's own address is used) and required in production.
+
+**Email.** Verification and password-reset emails are sent over SMTP when `SMTP_HOST` is set (port 587 uses STARTTLS, 465 uses TLS; `MAIL_FROM` is required with it). Gmail needs an *app password* (Google account, 2-step verification on), not your normal password. Without `SMTP_HOST` the emails are printed to the console of the process that sends them: the worker terminal when Redis is running, otherwise the `npm run dev` terminal. The worker reads `.env` too, so restart it after changing these values. A server that refuses an email makes the queue retry it; if SMTP is half-configured (host without sender) sending fails loudly instead of dropping mail.
 
 `DATABASE_URL` goes through PgBouncer; `DIRECT_URL` goes straight to Postgres because migrations can't use transaction pooling.
 
@@ -395,7 +412,7 @@ Assets and maintenance requests can carry a photo. The form uploads the file to 
 - **Names:** files are stored under a random UUID; only names of that exact shape are ever read from disk, so paths like `../..` never reach the file system.
 - **Limits:** 30 uploads per user per 10 minutes, on top of the general write limit.
 - **`photoUrl` accepts** an uploaded path or a plain `http(s)` link (older records). Other values, such as `javascript:`, are refused.
-- **Storage is swappable.** Everything goes through the `FileStore` interface in `lib/storage.ts` (`put`, `get`, `delete`); the default `LocalDiskStore` writes to `UPLOAD_DIR`. To use S3 or MinIO later, add one class and change `getStore()`: the saved paths, pages and forms stay the same.
+- **Storage is swappable.** Everything goes through the `FileStore` interface in `src/lib/storage.ts` (`put`, `get`, `delete`); the default `LocalDiskStore` writes to `UPLOAD_DIR`. To use S3 or MinIO later, add one class and change `getStore()`: the saved paths, pages and forms stay the same.
 - **Not done:** a photo that is replaced or removed stays on disk, and photos uploaded but never saved are not cleaned up. Local disk also assumes one server, or a shared volume, until the store is swapped.
 
 ## Rate Limiting
@@ -411,7 +428,7 @@ Counters live in Redis (one fixed window per key), so the limits hold across eve
 | Reset password | 20 / hour | caller address |
 | Any POST, PUT, PATCH, DELETE | 120 / minute | signed-in user |
 
-Reads are not limited. Load tests switch the limits off with `RATE_LIMIT_DISABLED=true` (see Load Testing). All numbers are in `lib/rateLimit.ts` (`LIMITS`). The caller address comes from `X-Forwarded-For`, so run the app behind a proxy or load balancer that sets it.
+Reads are not limited. Load tests switch the limits off with `RATE_LIMIT_DISABLED=true` (see Load Testing). All numbers are in `src/lib/rateLimit.ts` (`LIMITS`). The caller address comes from `X-Forwarded-For`, so run the app behind a proxy or load balancer that sets it.
 
 ## Load Testing
 
@@ -465,7 +482,7 @@ Full schema: `prisma/schema.prisma`.
 
 ## API Conventions
 
-Base URL: `/api` (Next.js route handlers under `app/api/`).
+Base URL: `/api` (Next.js route handlers under `src/app/api/`).
 
 ```json
 // Errors
@@ -489,6 +506,9 @@ Sessions use NextAuth's JWT cookie.
 |---|---|---|---|
 | `POST` | `/api/auth/signup` | Public | Creates an Employee account only |
 | `POST` | `/api/auth/forgot-password` | Public | Emails a reset link; answers the same whether or not the account exists |
+| `POST` | `/api/auth/verify-email` | Public | Confirms the address from the emailed link (single use, 24 h) |
+| `POST` | `/api/auth/resend-verification` | Public | Sends a new link; answers the same whether or not the account exists; one email a minute per account |
+| `POST` | `/api/account/sign-out-everywhere` | Signed in | Ends every session of the caller, this one included |
 | `POST` | `/api/auth/reset-password` | Public | `{ token, password }`; the link works once and expires after 30 minutes |
 | `POST` | `/api/employees/:id/promote` | Admin | The only place a role is assigned |
 | `GET` | `/api/assets` | Signed in | Paginated; `?q=` searches tag, name, serial and location (case-insensitive), plus `categoryId`, `departmentId` and `status` filters |
@@ -517,6 +537,7 @@ Sessions use NextAuth's JWT cookie.
 | `GET` | `/api/notifications` | Signed in | Your notifications |
 | `GET` | `/api/notifications/stream` | Signed in | Event stream: `notification` when you get new ones (max 5 open per user) |
 | `GET` | `/api/reports`, `/api/dashboard` | Managers / signed in | Utilization, maintenance frequency, KPIs |
+| `GET` | `/api/reports/heatmap?days=7\|30\|90&tz=` | Managers | Booking utilisation by weekday and hour (cancelled bookings excluded) |
 
 ---
 
@@ -575,7 +596,10 @@ Not built yet:
 - [x] Real-time push (Server-Sent Events) replacing the notification timer
 - [ ] Refresh-token rotation and email verification
 - [ ] A real mail provider (reset emails are currently printed to the worker's console)
-- [ ] Page controls on the remaining lists (allocations, transfers, audit cycles show the newest 100; maintenance is a board)
+- [x] Page controls on allocations, transfer requests and audit cycles (maintenance stays a board of the newest 100)
+- [x] Searchable pickers (`src/components/search-select.tsx`) on the allocation form (asset, employee, transfer-to) and the transfer request form: they search the server as you type, so any asset or employee can be found. `GET /api/employees` takes `?q=` (name or email, every word must match)
+- [x] QR labels: the **QR** button on an asset row (managers) opens a printable label whose code is a link to `/assets?tag=AF-0001`; the **Scan** button reads a label with the camera (needs a browser with `BarcodeDetector`, i.e. Chrome or Android, and https or localhost). Signed-out visitors are sent to sign in and then back to the link (`callbackUrl`, same-site paths only)
+- [ ] The auditor checklist (audit cycles) and the org-setup employee list still load only the first 100 rows
 - [x] Redis-backed rate limiting on auth and write routes
 - [x] Outbox pattern for atomic event publication (audit row committed with the change; relay delivers notifications; every change except password reset and the sweeps now uses it)
 - [x] File upload for asset and maintenance photos (local disk behind a swappable `FileStore`; S3/MinIO is a drop-in later)

@@ -23,7 +23,7 @@ export type SmtpConfig = {
  * rest is unusable, so a half-configured server fails loudly instead of
  * silently dropping mail.
  */
-export function readSmtpConfig(env: NodeJS.ProcessEnv = process.env): SmtpConfig | null {
+export function readSmtpConfig(env: Record<string, string | undefined> = process.env): SmtpConfig | null {
   const host = env.SMTP_HOST?.trim();
   if (!host) return null;
 

@@ -7,7 +7,7 @@ import {
   redisUrl,
   type EventJobData,
   type EmailJobData,
-} from "../lib/queue";
+} from "../src/lib/queue";
 
 export type WorkerHandlers = {
   /** Turn one activity event into notifications. */
