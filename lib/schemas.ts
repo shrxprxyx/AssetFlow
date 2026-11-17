@@ -130,6 +130,18 @@ export const bookingSchema = z
   });
 export type BookingInput = z.infer<typeof bookingSchema>;
 
+// Moving a booking: a new time, and optionally a new purpose.
+export const bookingRescheduleSchema = z
+  .object({
+    startTime: z.coerce.date(),
+    endTime: z.coerce.date(),
+    purpose: z.string().max(300).optional(),
+  })
+  .refine((data) => data.endTime > data.startTime, {
+    message: "End time must be after start time",
+    path: ["endTime"],
+  });
+
 // ── Maintenance Request Schema ───────────────────────
 export const maintenanceRequestSchema = z.object({
   assetId: z.coerce.number().int().positive(),

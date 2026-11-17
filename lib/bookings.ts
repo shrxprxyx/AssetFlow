@@ -181,3 +181,86 @@ export async function cancelBookingAs(
   if (eventId) await dispatchActivity(eventId);
   return updated;
 }
+
+/**
+ * Move an upcoming booking to a new time (and optionally change its purpose).
+ * Allowed: the person who made it, or an Admin / Asset Manager.
+ *
+ * Runs under the same resource lock as createBooking(), so two people can't
+ * take the same slot, and the booking may overlap its own old time. The
+ * reminder is re-armed for the new time.
+ */
+export async function rescheduleBookingAs(
+  actor: BookingActor,
+  bookingId: number,
+  startTime: Date,
+  endTime: Date,
+  purpose?: string,
+  /** Recorded in the same transaction as the change (see lib/outbox.ts). */
+  activity?: ActivityFor<ResourceBooking & { previousStartTime: Date; previousEndTime: Date }>
+) {
+  const first = await prisma.resourceBooking.findUnique({ where: { id: bookingId } });
+  if (!first) throw fail(404, "not_found", "Booking not found");
+
+  const isManager = actor.role === "ADMIN" || actor.role === "ASSET_MANAGER";
+  if (first.bookerId !== actor.userId && !isManager) {
+    throw fail(403, "forbidden", "You can only reschedule your own bookings");
+  }
+  checkWindow(startTime, endTime);
+
+  try {
+    const { updated, eventId } = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const rows = await tx.$queryRaw<{ id: number; isBookable: boolean; status: string }[]>`
+        SELECT id, "isBookable", "status"::text AS status FROM "Asset" WHERE id = ${first.resourceId} FOR UPDATE
+      `;
+      const resource = rows[0];
+      if (!resource || !resource.isBookable) {
+        throw fail(400, "not_bookable", "This asset is not a bookable resource");
+      }
+      if (UNAVAILABLE_STATUSES.includes(resource.status)) {
+        throw fail(
+          409,
+          "resource_unavailable",
+          `This resource is ${resource.status.toLowerCase().replace("_", " ")} and can't be booked`
+        );
+      }
+
+      // Re-read under the lock: it may have been cancelled or started while we waited.
+      const booking = await tx.resourceBooking.findUnique({ where: { id: bookingId } });
+      if (!booking) throw fail(404, "not_found", "Booking not found");
+      if (booking.status === "CANCELLED") {
+        throw fail(409, "already_cancelled", "This booking is cancelled, so it can't be moved");
+      }
+      if (booking.status !== "UPCOMING" || booking.startTime.getTime() <= Date.now()) {
+        throw fail(409, "booking_started", "Only a booking that hasn't started yet can be rescheduled");
+      }
+
+      const overlapping = await tx.resourceBooking.findFirst({
+        where: {
+          resourceId: booking.resourceId,
+          id: { not: bookingId },
+          status: { not: "CANCELLED" },
+          startTime: { lt: endTime },
+          endTime: { gt: startTime },
+        },
+      });
+      if (overlapping) throw overlapError(overlapping);
+
+      const updated = await tx.resourceBooking.update({
+        where: { id: bookingId },
+        data: { startTime, endTime, reminderSent: false, ...(purpose !== undefined && { purpose }) },
+      });
+      const eventId = await recordFor(tx, activity, {
+        ...updated,
+        previousStartTime: booking.startTime,
+        previousEndTime: booking.endTime,
+      });
+      return { updated, eventId };
+    });
+    if (eventId) await dispatchActivity(eventId);
+    return updated;
+  } catch (err) {
+    if (isExclusionViolation(err)) throw overlapError();
+    throw err;
+  }
+}

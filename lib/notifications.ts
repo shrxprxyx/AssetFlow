@@ -194,6 +194,21 @@ export async function createNotificationsFor(
       break;
     }
 
+    // Only matters when someone else (a manager) moved it.
+    case "booking_rescheduled": {
+      const booking = rid
+        ? await db.resourceBooking.findUnique({
+            where: { id: rid },
+            include: { resource: { select: { name: true } } },
+          })
+        : null;
+      if (booking) {
+        const when = booking.startTime.toISOString().slice(0, 16).replace("T", " ");
+        add([booking.bookerId], `Your booking of ${booking.resource.name} was moved to ${when} UTC.`, true);
+      }
+      break;
+    }
+
     // An admin put the user on an audit cycle.
     case "audit_assigned": {
       add([changes.auditorId as number | undefined], `You were assigned as an auditor for "${String(changes.cycleName)}".`);

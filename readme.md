@@ -135,9 +135,33 @@ Worker -.->|"fails"| Retry["retry: 2s, 4s, 8s, 16s"]
 - **The audit trail is written immediately** and never depends on Redis.
 - **Deciding who to notify** is handed to the worker, so a request doesn't wait for it. Failed jobs are retried with exponential backoff and kept for inspection.
 - **If Redis is unreachable** the web app creates the notifications itself and stops trying Redis for 10 seconds (a circuit breaker), so an outage costs requests nothing. Notifications are delayed at worst, never lost.
+- **Delivery is guaranteed by an outbox** (see Event Delivery below): the audit entry doubles as the list of events still to be turned into notifications.
 - **Scheduled jobs** (registered idempotently, so restarting the worker never duplicates them):
   - *Booking tick, every minute:* reminds the booker 15 minutes before a booking starts (once), moves bookings `UPCOMING → ONGOING → COMPLETED`.
   - *Overdue sweep, every 5 minutes:* notifies the holder and the managers once per overdue allocation; "already flagged" is remembered in the activity log.
+  - *Outbox relay, every 5 seconds:* delivers events that no job delivered (see below).
+
+### Event Delivery (Outbox)
+
+`ActivityLog` is the outbox. Every event is a row with `processedAt = NULL` until its notifications have been created.
+
+1. **Write.** Converted code calls `recordActivity(tx, ...)` inside its own transaction, so the audit row is committed together with the change it describes: both exist or neither does. This covers allocate, return, booking create, reschedule and cancel, every transfer and maintenance step, asset edits and status changes, employee role, department and status changes, and every audit-cycle action. Only password reset and the overdue and booking-reminder sweeps still call `logActivity()` after their work (write, then deliver).
+2. **Fast path.** After the commit, `dispatchActivity(id)` queues a job (or handles the event itself when Redis is down).
+3. **Safety net.** The worker's relay runs every 5 seconds and processes unprocessed events older than 5 seconds, oldest first (50 per run). It covers a crash after the commit, Redis being down, and a job that failed.
+4. **No duplicates.** `processActivityLog(id)` claims the row with `FOR UPDATE SKIP LOCKED`, so two workers never handle the same event at once, and notifications have a unique key (event, user, type), so handling an event twice notifies nobody twice.
+5. **Poison events.** An event that keeps failing is retried up to 5 times (`processAttempts`) and then left alone. Find stuck events with:
+
+   ```sql
+   SELECT id, action, "processAttempts", "timestamp" FROM "ActivityLog" WHERE "processedAt" IS NULL;
+   ```
+
+   To retry one after fixing the cause: `UPDATE "ActivityLog" SET "processAttempts" = 0 WHERE id = <id>;`
+
+**Deploying this change.** The migration marks every existing event as processed so nobody is notified about history. Old app or worker processes that are still running after the migration keep writing events and notify for them themselves, so the new relay would notify those a second time. Stop the old web app and worker before running `npx prisma migrate deploy`, then start the new ones. If you can't stop them, once the new code is the only code running, run `UPDATE "ActivityLog" SET "processedAt" = "timestamp" WHERE "processedAt" IS NULL AND "timestamp" < '<time the new code went live>';`.
+
+A database hiccup (database unreachable, connection pool busy) does not count against an event's 5 attempts; only errors from the event's own processing do.
+
+Not covered: code paths that still use `logActivity()` can lose their audit row if the server dies between the change and the log write (the notification half is covered for all of them). Emails are not part of the outbox.
 
 ---
 
@@ -234,7 +258,7 @@ assetflow/
 │   ├── pagination.ts          # ?page / ?pageSize parsing + the { data, total, page, pageSize } response
 │   ├── allocations.ts         # allocate / return, row lock + unique-index backstop
 │   ├── transfers.ts           # transfer request and approval workflow
-│   ├── bookings.ts            # booking rules, row lock, cancellation
+│   ├── bookings.ts            # booking rules, row lock, cancel, reschedule
 │   ├── maintenance.ts         # maintenance state machine
 │   ├── assetLifecycle.ts      # edit + lost / found / retire / dispose
 │   ├── audits.ts              # audit scoping
@@ -254,7 +278,7 @@ assetflow/
 │   └── seed.ts
 ├── tests/                     # Vitest suites + helpers
 ├── types/next-auth.d.ts
-├── middleware.ts              # redirects unauthenticated users to /login
+├── proxy.ts                   # runs before every request: redirects unauthenticated users to /login, 401s anonymous API calls
 ├── auth.ts                    # NextAuth config
 ├── docker-compose.yml         # postgres, pgbouncer, redis
 ├── .env.example
@@ -307,9 +331,12 @@ DIRECT_URL="postgresql://assetflow:assetflow@localhost:5433/assetflow?schema=pub
 REDIS_URL="redis://localhost:6379"
 AUTH_SECRET="replace-with-a-long-random-string"
 APP_URL="http://localhost:3000"
+UPLOAD_DIR="./uploads"
 ```
 
 In production mode (`npm start`) NextAuth only accepts requests for a host it trusts: on a real server set `AUTH_URL` to the public address, and for local production runs (such as load tests) set `AUTH_TRUST_HOST="true"`. Development (`npm run dev`) needs neither.
+
+`UPLOAD_DIR` is the folder where uploaded photos are kept (optional; the default is `./uploads`). It is not in git. On a server, point it at a persistent volume and include it in backups.
 
 `APP_URL` is the address used in password-reset links. It is optional in development (the request's own address is used) and required in production.
 
@@ -360,6 +387,17 @@ The bell opens one `EventSource` to `GET /api/notifications/stream`. Whenever no
 4. **Decide** (Asset Manager or Admin): approve (confirm) or reject (dismiss) each flagged asset.
 5. **Close** (Admin): refused while any flagged asset is undecided. Closing locks the cycle; approved Missing assets become Lost (their open allocation is closed and upcoming bookings cancelled); rejected ones are left alone.
 
+## Photo Uploads
+
+Assets and maintenance requests can carry a photo. The form uploads the file to `POST /api/uploads` (multipart, field `file`), gets back a path such as `/api/files/<random>.jpg`, and saves that path in `photoUrl`. `GET /api/files/<name>` serves it to signed-in users only.
+
+- **Accepted:** JPEG, PNG and WebP up to 5 MB. The type is read from the file's first bytes, not from its name or the browser's label, so an HTML or SVG file renamed `.png` is refused. Files are served with `nosniff` and a sandboxing `Content-Security-Policy`.
+- **Names:** files are stored under a random UUID; only names of that exact shape are ever read from disk, so paths like `../..` never reach the file system.
+- **Limits:** 30 uploads per user per 10 minutes, on top of the general write limit.
+- **`photoUrl` accepts** an uploaded path or a plain `http(s)` link (older records). Other values, such as `javascript:`, are refused.
+- **Storage is swappable.** Everything goes through the `FileStore` interface in `lib/storage.ts` (`put`, `get`, `delete`); the default `LocalDiskStore` writes to `UPLOAD_DIR`. To use S3 or MinIO later, add one class and change `getStore()`: the saved paths, pages and forms stay the same.
+- **Not done:** a photo that is replaced or removed stays on disk, and photos uploaded but never saved are not cleaned up. Local disk also assumes one server, or a shared volume, until the store is swapped.
+
 ## Rate Limiting
 
 Counters live in Redis (one fixed window per key), so the limits hold across every web instance. If Redis is down they fall back to per-process memory instead of rejecting requests. A blocked request gets `429` with a `Retry-After` header and `{ "error": "rate_limited", "retryAfterSec": n }`.
@@ -409,7 +447,7 @@ The worker tests use Redis database 15 and are skipped automatically if Redis is
 | `User` | email, passwordHash, role, departmentId, status | `email` unique (stored lowercase); roles writable only via the Admin-guarded promote endpoint |
 | `Department` | name, parentDeptId, headId, status | Self-referencing FK; the API refuses parent loops |
 | `AssetCategory` | name, customFields (JSON) | `name` unique |
-| `Asset` | assetTag, categoryId, serialNumber, condition, location, isBookable, status | `assetTag` and `serialNumber` unique |
+| `Asset` | assetTag, categoryId, departmentId, serialNumber, condition, location, isBookable, status | `assetTag` and `serialNumber` unique; `departmentId` is the owning department (optional, stays put while the asset is lent out; the holder is the active `Allocation`); a department that owns assets can't be deleted |
 | `AssetHistory` | assetId, fromStatus, toStatus, actorId, reason | Immutable log of every status transition |
 | `Allocation` | assetId, holderId, expectedReturnDate, status | **Partial unique index: one `ACTIVE` allocation per asset**; index on `(assetId, status)` |
 | `TransferRequest` | assetId, fromHolderId, toHolderId, status | Pending, approved, rejected, cancelled |
@@ -453,10 +491,10 @@ Sessions use NextAuth's JWT cookie.
 | `POST` | `/api/auth/forgot-password` | Public | Emails a reset link; answers the same whether or not the account exists |
 | `POST` | `/api/auth/reset-password` | Public | `{ token, password }`; the link works once and expires after 30 minutes |
 | `POST` | `/api/employees/:id/promote` | Admin | The only place a role is assigned |
-| `GET` | `/api/assets` | Signed in | Paginated; `?q=` searches tag, name, serial and location (case-insensitive), plus `categoryId` and `status` filters |
+| `GET` | `/api/assets` | Signed in | Paginated; `?q=` searches tag, name, serial and location (case-insensitive), plus `categoryId`, `departmentId` and `status` filters |
 | `GET` | `/api/activity` | Signed in | Paginated audit log; `?category=ALERTS\|APPROVALS\|BOOKINGS` |
-| `POST` | `/api/assets` | Admin, Asset Manager | Register an asset |
-| `GET` / `PATCH` | `/api/assets/:id` | Signed in / Admin, Asset Manager | Read / edit details |
+| `POST` | `/api/assets` | Admin, Asset Manager | Register an asset (optional `departmentId`, must be an active department) |
+| `GET` / `PATCH` | `/api/assets/:id` | Signed in / Admin, Asset Manager | Read / edit details (`departmentId` can be set, changed or cleared with `null`) |
 | `POST` | `/api/assets/:id/status` | Admin, Asset Manager | Lost, found, retire, dispose |
 | `GET` | `/api/assets/:id/history` | Signed in | Status history |
 | `POST` | `/api/allocations` | Admin, Asset Manager, Dept Head | `409 asset_already_allocated` if held; department heads only within their department |
@@ -464,6 +502,7 @@ Sessions use NextAuth's JWT cookie.
 | `POST` | `/api/allocations/transfer` | Signed in | Request a transfer (managers' own requests are approved immediately) |
 | `PATCH` | `/api/transfers/:id` | Approvers / requester | `{ "action": "approve" \| "reject" \| "cancel" }` |
 | `GET` / `POST` | `/api/bookings` | Signed in | Day view / book (not in the past, max 12 h, `409 booking_overlap`) |
+| `PATCH` | `/api/bookings/:id` | Booker, Admin, Asset Manager | Reschedule a booking that hasn't started (`startTime`, `endTime`, optional `purpose`); same overlap rules as booking, may overlap its own old time; re-arms the reminder |
 | `DELETE` | `/api/bookings/:id` | Booker, Admin, Asset Manager | Cancel an upcoming or in-progress booking |
 | `GET` / `POST` | `/api/maintenance-requests` | Signed in | List / raise |
 | `PATCH` | `/api/maintenance-requests/:id` | Managers, assigned technician | Approve, reject, assign, start, resolve |
@@ -473,6 +512,8 @@ Sessions use NextAuth's JWT cookie.
 | `GET` | `/api/audit-cycles/:id/discrepancies` | Admin, Asset Manager, Dept Head | Discrepancy report: flagged assets, who flagged them, decision status |
 | `PATCH` | `/api/audit-cycles/:id/findings/:findingId/resolution` | Admin, Asset Manager | `{ decision: APPROVED \| REJECTED }` |
 | `POST` | `/api/audit-cycles/:id/close` | Admin | Needs every flagged finding decided; approved Missing becomes Lost |
+| `POST` | `/api/uploads` | Signed in | Upload a photo (multipart `file`, JPEG/PNG/WebP, max 5 MB); returns `{ url }` |
+| `GET` | `/api/files/:name` | Signed in | Serve an uploaded photo |
 | `GET` | `/api/notifications` | Signed in | Your notifications |
 | `GET` | `/api/notifications/stream` | Signed in | Event stream: `notification` when you get new ones (max 5 open per user) |
 | `GET` | `/api/reports`, `/api/dashboard` | Managers / signed in | Utilization, maintenance frequency, KPIs |
@@ -497,7 +538,7 @@ Sessions use NextAuth's JWT cookie.
 3. Organization Setup (Departments, Categories, Employees), Admin only
 4. Asset Registration & Directory (sortable table, edit and lifecycle actions)
 5. Asset Allocation & Transfer (with approval inbox)
-6. Resource Booking (day grid, overlap validation, cancel)
+6. Resource Booking (day grid, overlap validation, reschedule, cancel)
 7. Maintenance Management
 8. Asset Audit (cycles, discrepancy reports)
 9. Reports & Analytics
@@ -507,9 +548,11 @@ Sessions use NextAuth's JWT cookie.
 
 ## Known Limitations
 
-- Department audits match assets by the department name appearing in the asset's location text, because `Asset` has no department column yet.
-- `MaintenanceRequest.technicianId` has no foreign key; the API validates the technician exists and is active when assigning.
+- Department audits still match assets by the department name appearing in the asset's location text. `Asset.departmentId` now exists, but audits have not been switched to it, and existing assets have no department until someone sets one.
+- Foreign keys now cover `AssetHistory.actorId`, `MaintenanceRequest.technicianId`, `Allocation.holderDeptId` and `Notification.activityLogId`. Columns that can point at several tables (transfer from/to holders, audit `scopeId`, `resourceId`, `relatedResourceId`) deliberately have none; the API validates them.
 - Day-view boundaries for bookings use the server's timezone.
+- Password-reset events and the overdue and booking-reminder sweeps still write their entry with `logActivity()`, after their own work, so a crash in between can lose that entry. Every other change writes its audit entry in the same transaction (see Event Delivery).
+- Photos live on the app server's disk (`UPLOAD_DIR`); old and unsaved uploads are not deleted automatically.
 
 ---
 
@@ -521,21 +564,21 @@ Done:
 - [x] Scheduled overdue sweep and booking reminder / status tick
 - [x] Connection pooling (PgBouncer)
 - [x] Transfer approval workflow
-- [x] Asset lifecycle actions and booking cancellation
+- [x] Asset lifecycle actions, booking cancellation and rescheduling
 - [x] Server-side pagination on list endpoints (`{ data, total, page, pageSize }`)
 - [x] Page controls with server-side search on the asset directory, activity log and employee directory
 - [x] Password reset (single-use, hashed, 30-minute links; emails sent through the queue)
 - [x] Automated test suite, including concurrency tests
-- [x] Real-time push (Server-Sent Events) replacing the notification timer
-- [x] Redis-backed rate limiting on auth and write routes
-- [x] Multi-auditor assignment and audit discrepancy approval
-- [x] k6 load tests: scripts, runbook and recorded results are in `load-test/` (100 users at 2 s think time: read p95 96 ms, write p95 309 ms, 0 % errors, one winner for the shared asset)
 
 Not built yet:
 
+- [x] Real-time push (Server-Sent Events) replacing the notification timer
 - [ ] Refresh-token rotation and email verification
 - [ ] A real mail provider (reset emails are currently printed to the worker's console)
 - [ ] Page controls on the remaining lists (allocations, transfers, audit cycles show the newest 100; maintenance is a board)
-- [ ] Outbox pattern for atomic event publication
-- [ ] File upload for asset and maintenance photos
+- [x] Redis-backed rate limiting on auth and write routes
+- [x] Outbox pattern for atomic event publication (audit row committed with the change; relay delivers notifications; every change except password reset and the sweeps now uses it)
+- [x] File upload for asset and maintenance photos (local disk behind a swappable `FileStore`; S3/MinIO is a drop-in later)
+- [x] Multi-auditor assignment and audit discrepancy approval
+- [x] k6 load tests: scripts, runbook and recorded results are in `load-test/` (before the outbox change, 100 users at 2 s think time gave read p95 96 ms, write p95 309 ms, 0 % errors, one winner for the shared asset; later runs missed the p95 targets and the cause is not found, see `load-test/RESULTS.md`)
 - [ ] Extract the API into a standalone service (deliberately not done: a single Next.js app keeps the project simple to run)

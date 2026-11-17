@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cancelBookingAs } from "@/lib/bookings";
+import { cancelBookingAs, rescheduleBookingAs } from "@/lib/bookings";
+import { bookingRescheduleSchema } from "@/lib/schemas";
 import { requireWriteAuth } from "@/lib/guards";
+import { readJson, validationError } from "@/lib/http";
 
 // DELETE /api/bookings/:id  -> cancels the booking (it stays in the table as CANCELLED)
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -27,6 +29,45 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     console.error(e);
     return NextResponse.json(
       { error: "server_error", message: "Something went wrong cancelling the booking" },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH /api/bookings/:id  { startTime, endTime, purpose? }  -> moves an upcoming booking
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const guard = await requireWriteAuth();
+  if (!guard.ok) return guard.response;
+  const { user } = guard;
+
+  const id = Number((await params).id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return NextResponse.json({ error: "invalid_id", message: "Invalid booking id" }, { status: 400 });
+  }
+
+  const json = await readJson(req);
+  if (!json.ok) return json.response;
+  const parsed = bookingRescheduleSchema.safeParse(json.body);
+  if (!parsed.success) return validationError(parsed.error);
+  const { startTime, endTime, purpose } = parsed.data;
+
+  try {
+    const booking = await rescheduleBookingAs(user, id, startTime, endTime, purpose, (b) => ({
+      action: "booking_rescheduled",
+      actorId: user.userId,
+      resourceType: "ResourceBooking",
+      resourceId: id,
+      changes: {
+        from: { startTime: b.previousStartTime, endTime: b.previousEndTime },
+        to: { startTime: b.startTime, endTime: b.endTime },
+      },
+    }));
+    return NextResponse.json({ booking });
+  } catch (e: any) {
+    if (e?.status && e?.body) return NextResponse.json(e.body, { status: e.status });
+    console.error(e);
+    return NextResponse.json(
+      { error: "server_error", message: "Something went wrong rescheduling the booking" },
       { status: 500 }
     );
   }

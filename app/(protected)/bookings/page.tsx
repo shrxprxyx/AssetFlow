@@ -40,6 +40,9 @@ export default function BookingPage() {
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [form, setForm] = useState({ start: "10:00", end: "11:00", purpose: "" });
+  const [movingId, setMovingId] = useState<number | null>(null);
+  const [moveForm, setMoveForm] = useState({ start: "10:00", end: "11:00" });
+  const [savingMoveId, setSavingMoveId] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/resources")
@@ -77,6 +80,54 @@ export default function BookingPage() {
   // You can cancel your own bookings (managers can cancel anyone's), as long as they haven't ended.
   function canCancel(b: Booking) {
     return (b.bookerId === userId || isManager) && new Date(b.endTime) > new Date();
+  }
+
+  // Only a booking that hasn't started can be moved.
+  function canReschedule(b: Booking) {
+    return (b.bookerId === userId || isManager) && new Date(b.startTime) > new Date();
+  }
+
+  const toTimeInput = (iso: string) => {
+    const d = new Date(iso);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+
+  function startMove(b: Booking) {
+    setError(null);
+    setNotice(null);
+    setConfirmId(null);
+    setMoveForm({ start: toTimeInput(b.startTime), end: toTimeInput(b.endTime) });
+    setMovingId(b.id);
+  }
+
+  async function saveMove(id: number) {
+    setError(null);
+    setNotice(null);
+    // The move keeps the date shown on the grid; only the times change.
+    const start = new Date(`${date}T${moveForm.start}:00`);
+    const end = new Date(`${date}T${moveForm.end}:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      setError("Pick a valid start and end time.");
+      return;
+    }
+    setSavingMoveId(id);
+    try {
+      const res = await fetch(`/api/bookings/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startTime: start.toISOString(), endTime: end.toISOString() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.message ?? "Could not reschedule the booking.");
+        return;
+      }
+      setNotice("Booking rescheduled.");
+      setMovingId(null);
+      refetch();
+    } finally {
+      setSavingMoveId(null);
+    }
   }
 
   async function submitBooking() {
@@ -192,7 +243,44 @@ export default function BookingPage() {
                 <span className="text-sm text-muted-foreground">Open</span>
               )}
 
-              {showCancel && b && (
+              {showCancel && b && movingId === b.id && (
+                <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1.5">
+                  <input
+                    type="time"
+                    aria-label="New start time"
+                    value={moveForm.start}
+                    onChange={(e) => setMoveForm({ ...moveForm, start: e.target.value })}
+                    className="h-7 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                  />
+                  <span className="text-xs text-muted-foreground">to</span>
+                  <input
+                    type="time"
+                    aria-label="New end time"
+                    value={moveForm.end}
+                    onChange={(e) => setMoveForm({ ...moveForm, end: e.target.value })}
+                    className="h-7 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+                  />
+                  <Button
+                    size="xs"
+                    className="cursor-pointer"
+                    disabled={savingMoveId === b.id}
+                    onClick={() => saveMove(b.id)}
+                  >
+                    {savingMoveId === b.id ? "Saving…" : "Save"}
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    className="cursor-pointer"
+                    disabled={savingMoveId === b.id}
+                    onClick={() => setMovingId(null)}
+                  >
+                    Back
+                  </Button>
+                </div>
+              )}
+
+              {showCancel && b && movingId !== b.id && (
                 <div className="ml-auto flex shrink-0 gap-1.5">
                   {confirmId === b.id ? (
                     <>
@@ -216,18 +304,25 @@ export default function BookingPage() {
                       </Button>
                     </>
                   ) : (
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      className="cursor-pointer"
-                      onClick={() => {
-                        setError(null);
-                        setNotice(null);
-                        setConfirmId(b.id);
-                      }}
-                    >
-                      Cancel booking
-                    </Button>
+                    <>
+                      {canReschedule(b) && (
+                        <Button size="xs" variant="outline" className="cursor-pointer" onClick={() => startMove(b)}>
+                          Reschedule
+                        </Button>
+                      )}
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        className="cursor-pointer"
+                        onClick={() => {
+                          setError(null);
+                          setNotice(null);
+                          setConfirmId(b.id);
+                        }}
+                      >
+                        Cancel booking
+                      </Button>
+                    </>
                   )}
                 </div>
               )}
