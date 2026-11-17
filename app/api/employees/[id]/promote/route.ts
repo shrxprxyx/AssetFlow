@@ -3,6 +3,7 @@ import { promoteSchema } from "@/lib/schemas";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/logActivity";
 import { requireAuth } from "@/lib/guards";
+import { readJson, validationError } from "@/lib/http";
 
 // Changes an employee's role (promote or demote). Admin only.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -18,15 +19,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "invalid_id", message: "Invalid employee id" }, { status: 400 });
   }
 
-  const body = await req.json();
-  const parsed = promoteSchema.safeParse(body);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return NextResponse.json(
-      { error: "validation_error", message: issue.message, field: issue.path[0] },
-      { status: 400 }
-    );
-  }
+  const json = await readJson(req);
+  if (!json.ok) return json.response;
+  const parsed = promoteSchema.safeParse(json.body);
+  if (!parsed.success) return validationError(parsed.error);
 
   if (employeeId === guard.user.userId) {
     return NextResponse.json({ error: "self_change", message: "You can't change your own role" }, { status: 400 });

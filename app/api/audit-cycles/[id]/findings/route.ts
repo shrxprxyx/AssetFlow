@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { auditFindingSchema } from "@/lib/schemas";
 import { logActivity } from "@/lib/logActivity";
 import { requireAuth } from "@/lib/guards";
+import { readJson, validationError } from "@/lib/http";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -29,15 +30,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     );
   }
 
-  const body = await req.json();
-  const parsed = auditFindingSchema.safeParse(body);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return NextResponse.json(
-      { error: "validation_error", message: issue.message, field: issue.path[0] },
-      { status: 400 }
-    );
-  }
+  const json = await readJson(req);
+  if (!json.ok) return json.response;
+  const parsed = auditFindingSchema.safeParse(json.body);
+  if (!parsed.success) return validationError(parsed.error);
   const { assetId, status, auditorNotes } = parsed.data;
 
   const asset = await prisma.asset.findUnique({ where: { id: assetId } });
